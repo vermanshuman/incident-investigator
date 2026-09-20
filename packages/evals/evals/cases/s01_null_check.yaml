@@ -1,0 +1,11 @@
+id: s01_null_check_v1
+scenario: s01_null_check
+incident:
+  title: "POST /checkout returning 500s"
+  description: |
+    Since about 14:02 UTC customers report failed checkouts. Error rate on
+    POST /checkout jumped from <1% to ~40%. No alerts from the DB team.
+ground_truth:
+  category: bad_deploy
+  culprit: "app/routers/checkout.py"   # matched against cited paths / SHA
+  is_external: false

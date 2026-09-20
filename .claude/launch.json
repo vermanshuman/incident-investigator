@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "--directory", "apps/api", "uvicorn", "app.main:app", "--port", "8000"],
+      "port": 8000
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "apps/web", "run", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "target-app",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "--directory", "apps/target-app", "uvicorn", "app.main:app", "--port", "8080"],
+      "port": 8080
+    }
+  ]
+}

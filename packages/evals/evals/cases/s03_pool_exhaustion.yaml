@@ -1,0 +1,11 @@
+id: s03_pool_exhaustion_v1
+scenario: s03_pool_exhaustion
+incident:
+  title: "Checkout latency spike and timeouts"
+  description: |
+    p95 latency on /checkout went from 180ms to 6s over the last 20 minutes.
+    Some requests time out entirely. Traffic is normal for this time of day.
+ground_truth:
+  category: resource_config
+  culprit: "config/database.yaml"
+  is_external: false

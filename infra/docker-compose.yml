@@ -1,0 +1,98 @@
+name: incident-investigator
+
+x-python-env: &python-env
+  env_file: ../.env
+  environment:
+    PYTHONUNBUFFERED: "1"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-investigator}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-investigator}
+      POSTGRES_DB: ${POSTGRES_DB:-investigator}
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-investigator}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  target-app:
+    build:
+      context: ..
+      dockerfile: apps/target-app/Dockerfile
+    <<: *python-env
+    ports: ["8080:8080"]
+    volumes:
+      - target-repo:/data/target-repo
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  mcp-server:
+    build:
+      context: ..
+      dockerfile: packages/mcp-server/Dockerfile
+    <<: *python-env
+    ports: ["8090:8090"]
+    volumes:
+      - target-repo:/data/target-repo:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    <<: *python-env
+    ports: ["8000:8000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  worker:
+    build:
+      context: ..
+      dockerfile: apps/worker/Dockerfile
+    <<: *python-env
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      mcp-server: { condition: service_started }
+
+  web:
+    build:
+      context: ../apps/web
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports: ["3000:3000"]
+    depends_on: [api]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel-collector.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otel-collector.yaml:ro
+    ports: ["4317:4317", "4318:4318"]
+    depends_on: [jaeger]
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports: ["16686:16686"]
+
+volumes:
+  pgdata:
+  target-repo:

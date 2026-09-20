@@ -1,0 +1,22 @@
+[project]
+name = "investigator-worker"
+version = "0.1.0"
+description = "Background worker that executes agent runs and publishes events"
+requires-python = ">=3.11"
+dependencies = [
+    "investigator-agent",
+    "redis>=5.0",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+    "pydantic-settings>=2.4",
+    "httpx>=0.27",
+    "opentelemetry-sdk>=1.26",
+    "opentelemetry-exporter-otlp>=1.26",
+]
+
+[tool.uv.sources]
+investigator-agent = { path = "../../packages/agent", editable = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

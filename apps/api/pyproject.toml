@@ -1,0 +1,35 @@
+[project]
+name = "investigator-api"
+version = "0.1.0"
+description = "FastAPI backend: REST, SSE streaming, auth"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+    "alembic>=1.13",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "redis>=5.0",
+    "sse-starlette>=2.1",
+    "httpx>=0.27",
+    "opentelemetry-api>=1.26",
+    "opentelemetry-sdk>=1.26",
+    "opentelemetry-instrumentation-fastapi>=0.47b0",
+    "opentelemetry-exporter-otlp>=1.26",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+ignore = ["B008"]  # FastAPI Depends() in defaults is the framework idiom
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

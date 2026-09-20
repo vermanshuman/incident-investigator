@@ -1,0 +1,11 @@
+id: s08_provider_outage_v1
+scenario: s08_provider_outage
+incident:
+  title: "Payments failing for all customers"
+  description: |
+    Every payment attempt fails with a gateway timeout since 09:41. Checkout
+    itself loads fine. Nothing was deployed today as far as we know.
+ground_truth:
+  category: external
+  culprit: null
+  is_external: true
