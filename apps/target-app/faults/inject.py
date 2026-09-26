@@ -31,6 +31,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 REPO = Path(os.getenv("TARGET_REPO_PATH", PROJECT_ROOT / "target-repo"))
 APP_URL = os.getenv("TARGET_APP_URL", "http://localhost:8080")
 DEPLOYER = ("Rahul Mehta", "rahul@example.com")
+STOCK_PER_SKU = 500
 RESTART_FLAG = Path(os.getenv("TARGET_RESTART_FLAG", PROJECT_ROOT / "data" / "restart-target"))
 
 
@@ -48,6 +49,18 @@ def _set_runtime(values: dict[str, str]) -> None:
                 row.value, row.updated_at = v, datetime.now(UTC)
             else:
                 db.add(RuntimeState(key=k, value=v))
+        db.commit()
+
+
+def _restock() -> None:
+    """Demo traffic drains inventory, and a cart that 409s never reaches the
+    payment provider - which silently breaks the scenarios that need it."""
+    from sqlalchemy import update
+
+    from app.models import Product
+
+    with SessionLocal() as db:
+        db.execute(update(Product).values(stock=STOCK_PER_SKU))
         db.commit()
 
 
@@ -127,6 +140,7 @@ def reset(wipe: bool = typer.Option(False, help="also delete logs, metrics and d
             _wait_for_version(sha)
     _set_runtime({"payment_provider_status": "up",
                   "payment_provider_expected_api_key": "pk_live_7f3a9c2e"})
+    _restock()
     if wipe:
         from sqlalchemy import delete
 

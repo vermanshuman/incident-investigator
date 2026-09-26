@@ -70,3 +70,44 @@ def test_missing_cassette_file_is_explicit(tmp_path, monkeypatch):
     cassette.reset()
     with pytest.raises(cassette.MissingRecording, match="cassette not found"):
         llm.call_structured(Triage, SYSTEM, USER)
+
+
+def test_tool_results_replay_without_the_target_app(tmp_path, monkeypatch):
+    """A replay must not depend on the live database: the recorded evidence is
+    what makes an old run reproducible on a fresh clone."""
+    from agent import tools
+
+    path = tmp_path / "run.jsonl"
+    monkeypatch.setenv("LLM_RECORD", str(path))
+    monkeypatch.setitem(tools.TOOLS, "search_logs",
+                        (lambda **kw: "raw", lambda raw: tools.ToolResult("- [log:7] boom", ["log:7"])))
+    recorded, _, err = tools.run_tool("search_logs", {"level": "ERROR"})
+    assert recorded.refs == ["log:7"] and err is None
+
+    monkeypatch.delenv("LLM_RECORD")
+    monkeypatch.setenv("LLM_REPLAY", str(path))
+    cassette.reset()
+    # the tool itself now raises: only a recorded result can answer
+    monkeypatch.setitem(tools.TOOLS, "search_logs",
+                        (lambda **kw: (_ for _ in ()).throw(AssertionError("tool must not run")), lambda raw: raw))
+    replayed, _, err = tools.run_tool("search_logs", {"level": "ERROR"})
+    assert replayed.summary == "- [log:7] boom"
+    assert replayed.refs == ["log:7"]
+    assert err is None
+
+
+def test_tool_errors_are_recorded_and_replayed(tmp_path, monkeypatch):
+    from agent import tools
+
+    path = tmp_path / "run.jsonl"
+    monkeypatch.setenv("LLM_RECORD", str(path))
+    monkeypatch.setitem(tools.TOOLS, "get_metrics",
+                        (lambda **kw: (_ for _ in ()).throw(ValueError("unknown metric cpu")), lambda raw: raw))
+    _, _, err = tools.run_tool("get_metrics", {"metric": "cpu"})
+    assert "unknown metric cpu" in err
+
+    monkeypatch.delenv("LLM_RECORD")
+    monkeypatch.setenv("LLM_REPLAY", str(path))
+    cassette.reset()
+    result, _, err = tools.run_tool("get_metrics", {"metric": "cpu"})
+    assert "unknown metric cpu" in err and "tool error" in result.summary

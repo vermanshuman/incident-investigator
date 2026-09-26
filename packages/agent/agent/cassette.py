@@ -1,14 +1,15 @@
 """Record and replay LLM calls so a demo costs nothing.
 
-With LLM_RECORD=<file> every structured call is appended to a JSONL cassette.
-With LLM_REPLAY=<file> the cassette answers instead of the API, so the same
-investigation can be re-run, demoed and filmed with zero API calls.
+With LLM_RECORD=<file> every structured call AND every tool result is appended
+to a JSONL cassette. With LLM_REPLAY=<file> the cassette answers instead of the
+API and instead of the tools, so a recorded investigation replays exactly, with
+no API calls and without the target app running at all.
 
 Matching is deliberately forgiving. Prompts contain a timestamp and the
 evidence ledger, so they are never byte-identical between runs: an exact
 prompt match is preferred, but the fallback is the next unused recording of
-the same schema, in order. That reproduces the recorded investigation while
-the tools still run live against the target app.
+the same schema, in order. That reproduces the recorded investigation step by
+step, including what each tool returned at the time.
 """
 
 from __future__ import annotations
@@ -107,6 +108,16 @@ def lookup(schema_name: str, model: str, system: str, user: str) -> dict:
         f"({len(same_schema)} present, all consumed). The replayed run took more "
         "steps than the recorded one - re-record it with LLM_RECORD."
     )
+
+
+def tool_schema(tool: str) -> str:
+    """Tool results share the cassette with model calls, one pseudo-schema per
+    tool, so the same ordered matching applies to them."""
+    return f"tool::{tool}"
+
+
+def args_key(args: dict) -> str:
+    return json.dumps(args, sort_keys=True, default=str)
 
 
 def save(schema_name: str, model: str, system: str, user: str, payload: dict[str, Any],

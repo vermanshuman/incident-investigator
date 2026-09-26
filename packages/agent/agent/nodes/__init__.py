@@ -9,7 +9,7 @@ import os
 import time
 from datetime import UTC, datetime
 
-from agent import prompts
+from agent import corroboration, prompts
 from agent.guardrails import budget_exceeded, repeated_tool_call
 from agent.llm import Call, call_structured
 from agent.schemas import (
@@ -108,15 +108,40 @@ def decide(state: InvestigationState) -> dict:
                                    result=last["summary"], steps_left=steps_left)
     else:
         user = prompts.FIRST_STEP.format(case=case, steps_left=steps_left)
+    # A confirmation that is still one-sided keeps the loop going, so say which
+    # side is missing before asking for the next move.
+    pending = corroboration.pending_confirmations(state, state.get("hypotheses", []))
+    if pending:
+        user += corroboration.nudge(pending, state)
     call = call_structured(Step, prompts.SYSTEM, user)
     step: Step = call.output
     hyps = _apply_updates(state, step)
     update = {**_account(state, call), "hypotheses": hyps, "last_note": step.note}
 
-    confirmed = [h for h in hyps if h.status == HypothesisStatus.confirmed
-                 and len({c.tool for c in h.evidence_for}) >= 2]
-    if step.conclude or step.next_call is None or confirmed:
-        why = "confirmed by 2+ sources" if confirmed else ("model concluded" if step.conclude else "no next call")
+    confirmed = corroboration.corroborated(state, hyps)
+    one_sided = corroboration.pending_confirmations(state, hyps)
+    if confirmed:
+        return {**update, "pending_call": None, "stop_reason": "confirmed by symptom + change evidence"}
+    if (step.conclude or step.next_call is None) and one_sided and steps_left > 1:
+        # Don't stop on half the evidence while budget remains.
+        side = one_sided[0][1]
+        if step.next_call is None:
+            forced = corroboration.next_missing_side_call(state, side)
+            if forced is None:
+                return {**update, "pending_call": None,
+                        "stop_reason": f"stopped with {'symptom' if side == 'change' else 'change'} evidence only"}
+            return {**update, "pending_call": forced,
+                    "last_note": f"{step.note} - checking {side} evidence first"}
+        update["last_note"] = f"{step.note} (need {side} evidence)"
+    elif step.conclude or step.next_call is None:
+        # Never write a root cause without having looked at what changed, even
+        # when the model stopped without confirming anything.
+        if not corroboration.change_history_checked(state) and steps_left > 1:
+            forced = corroboration.next_missing_side_call(state, "change")
+            if forced is not None:
+                return {**update, "pending_call": forced,
+                        "last_note": f"{step.note} - checking what changed first"}
+        why = "model concluded" if step.conclude else "no next call"
         return {**update, "pending_call": None, "stop_reason": why}
     if not prompts.open_hypotheses(state) and not [h for h in hyps if h.status == HypothesisStatus.open]:
         return {**update, "pending_call": None, "stop_reason": "no open hypotheses"}
@@ -153,6 +178,8 @@ def write_report(state: InvestigationState) -> dict:
         r.unchecked_areas.append(f"{len(dropped)} citation(s) removed by validator: not present in evidence ledger")
     if not r.supporting_evidence and r.confidence != "low":
         r.confidence = "low"
+    if not corroboration.change_history_checked(state):
+        r.unchecked_areas.append("what changed (deploys/commits) was never queried")
     return {**_account(state, call), "report": r, "last_note": f"Report: {r.root_cause[:80]}"}
 
 

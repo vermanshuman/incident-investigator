@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from mcp_server.tools import database, deploys, git, logs, metrics
 
+from agent import cassette
 from agent.guardrails import redact
 
 MAX_DIFF_CHARS = 3000
@@ -113,16 +114,27 @@ Times are ISO strings; windows default to the last 30 minutes."""
 
 def run_tool(name: str, args: dict) -> tuple[ToolResult, float, str | None]:
     """Execute a tool; return (result, latency_ms, error). Output is redacted
-    before it can reach the model."""
+    before it can reach the model. Under LLM_REPLAY the recorded result is
+    returned instead, so a replay needs neither the target app nor its data."""
+    if cassette.replay_path() is not None:
+        row = cassette.lookup(cassette.tool_schema(name), "-", "", cassette.args_key(args))
+        out = row["output"]
+        return ToolResult(out["summary"], out["refs"]), out.get("latency_ms", 0.0), out.get("error")
+
     if name not in TOOLS:
         return ToolResult(f"unknown tool {name}", []), 0.0, "unknown tool"
     fn, render = TOOLS[name]
     t0 = time.perf_counter()
+    error: str | None = None
     try:
         raw = fn(**args)
         res = render(raw)
         res.summary = redact(res.summary)
-        return res, (time.perf_counter() - t0) * 1000, None
     except Exception as exc:  # noqa: BLE001 - surface tool failures to the model as data
-        msg = f"{type(exc).__name__}: {exc}"[:300]
-        return ToolResult(f"tool error: {msg}", []), (time.perf_counter() - t0) * 1000, msg
+        error = f"{type(exc).__name__}: {exc}"[:300]
+        res = ToolResult(f"tool error: {error}", [])
+    latency = (time.perf_counter() - t0) * 1000
+    cassette.save(cassette.tool_schema(name), "-", "", cassette.args_key(args),
+                  {"summary": res.summary, "refs": res.refs, "latency_ms": round(latency, 1), "error": error},
+                  {})
+    return res, latency, error

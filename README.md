@@ -76,6 +76,14 @@ call, evaluate} until a hypothesis is confirmed by 2 independent tools or a budg
 Every citation must reuse a `source_ref` a tool actually returned; anything else is dropped by the
 validator.
 
+A cause counts as confirmed only with evidence from **both** sides - the symptom users hit
+(`search_logs`, `get_metrics`, `query_database`) and what changed to cause it
+(`get_deploy_events`, `list_commits`, `get_commit_diff`). Two symptoms agreeing is not a root
+cause: an exhausted connection pool is a symptom, and something changed to exhaust it. If the
+change tools find nothing shipped, that absence is the change-side evidence and points to an
+external cause, so "not our bug" stays reachable. The loop will fetch the missing side itself
+rather than let a report be written on half the evidence.
+
 ### Cost control
 
 Measured: **~$0.08 per investigation** on Claude Sonnet 5 (6 LLM calls, ~21K tokens), and each run
@@ -98,18 +106,21 @@ python investigate.py --record cassettes/s08_provider_outage.jsonl "Payments fai
 python investigate.py --replay cassettes/s08_provider_outage.jsonl "Payments failing since ..."
 ```
 
-Replay prefers an exact prompt match and otherwise takes the next recording of the same step in
-order, because prompts carry a timestamp and the growing evidence ledger and so never match byte
-for byte. The tools still run live against the target app, so the evidence shown in a replay is
-real; only the model's reasoning is played back. `cassettes/` is committed - that is what makes
-the demo reproducible for anyone who clones the repo.
+Cassettes record the model's reasoning **and** every tool result, so a replay needs neither an API
+key nor the target app: `cassettes/` is committed, and a fresh clone can watch all three
+investigations. Matching prefers an exact prompt and otherwise plays the next recording of that
+step in order, because prompts carry a timestamp and the growing evidence ledger.
 
 ### Free path (no credit card)
 
 `LLM_PROVIDER=gemini` with an AI Studio key runs on Google's free tier. A full investigation is
-~14K tokens. Record it once and every later demo replays for free. Verified run on
-`gemini-3.8-flash`: the provider-outage scenario, answered `external=true` with no commit blamed,
-7 calls, $0.00.
+~14K tokens. Record it once and every later demo replays for free. All three scenarios were recorded this way on `gemini-3.8-flash` at no cost:
+
+| Scenario | Agent's conclusion | Evidence |
+|---|---|---|
+| bad deploy | named the commit that removed the null check | logs + deploy event |
+| pool exhaustion | the deploy that shrank the pool - fix is revert, not "raise the limit" | QueuePool error + deploy event |
+| provider outage | `external=true`, no commit blamed, mitigation not a code change | upstream timeouts + empty deploy history |
 
 ## Phases
 
