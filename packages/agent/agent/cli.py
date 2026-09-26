@@ -9,6 +9,7 @@ import os
 
 import typer
 
+from agent.llm import is_priced, model_name
 from agent.runner import investigate
 
 cli = typer.Typer(add_completion=False)
@@ -56,6 +57,8 @@ def run(
             typer.echo(json.dumps(r.model_dump(), indent=2))
     cap = (final.get("budget") or {}).get("max_cost_usd") or 0.0
     mode = "  (replayed: no API calls)" if os.getenv("LLM_REPLAY") else ""
+    if not os.getenv("LLM_REPLAY") and not is_priced(model_name(False)):
+        mode = f"  (no price table for {model_name(False)}; token cap still applies)"
     typer.echo(f"\nstop: {final.get('stop_reason')} | steps={final.get('step')} llm_calls={u.get('calls')} "
                f"tokens_in={u.get('input_tokens')} tokens_out={u.get('output_tokens')} "
                f"cost=${u.get('cost_usd', 0):.4f} of ${cap:.2f} cap{mode}")

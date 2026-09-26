@@ -30,14 +30,15 @@ PRICES: dict[str, tuple[float, float]] = {
     "gpt-4o": (2.5, 10.0),
     "gpt-5": (1.25, 10.0),
     "gpt-4o-mini": (0.15, 0.6),
-    "gemini-2.5-pro": (1.25, 10.0),
-    "gemini-2.5-flash": (0.3, 2.5),
 }
+
+# Models with no price row report $0 and say so, rather than inventing a number.
+# Gemini's free tier (AI Studio key) is the intended zero-cost path here.
 
 DEFAULTS = {
     "anthropic": ("claude-sonnet-5", "claude-haiku-4-5"),
     "openai": ("gpt-4o", "gpt-4o-mini"),
-    "gemini": ("gemini-2.5-pro", "gemini-2.5-flash"),
+    "gemini": ("gemini-3.8-flash", "gemini-3.8-flash"),
     "fake": ("fake", "fake"),
 }
 
@@ -151,6 +152,10 @@ def _system_message(system: str) -> SystemMessage:
         return SystemMessage(content=system)
     return SystemMessage(content=[{"type": "text", "text": system,
                                    "cache_control": {"type": "ephemeral"}}])
+
+
+def is_priced(model: str) -> bool:
+    return model in PRICES
 
 
 def _cost(model: str, inp: int, out: int) -> float:

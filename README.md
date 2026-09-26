@@ -94,12 +94,22 @@ prints its own cost.
 Record a run once, then reproduce it exactly with **zero API calls**:
 
 ```bash
-python investigate.py --record cassettes/s01.jsonl "POST /checkout returning 500s ..."
-python investigate.py --replay cassettes/s01.jsonl "POST /checkout returning 500s ..."
+python investigate.py --record cassettes/s08_provider_outage.jsonl "Payments failing since ..."
+python investigate.py --replay cassettes/s08_provider_outage.jsonl "Payments failing since ..."
 ```
 
-The cassette keys on the prompt, so a replay survives code changes that do not alter prompts.
-Tools still run for real against the local target app, so the evidence in a replay is live.
+Replay prefers an exact prompt match and otherwise takes the next recording of the same step in
+order, because prompts carry a timestamp and the growing evidence ledger and so never match byte
+for byte. The tools still run live against the target app, so the evidence shown in a replay is
+real; only the model's reasoning is played back. `cassettes/` is committed - that is what makes
+the demo reproducible for anyone who clones the repo.
+
+### Free path (no credit card)
+
+`LLM_PROVIDER=gemini` with an AI Studio key runs on Google's free tier. A full investigation is
+~14K tokens. Record it once and every later demo replays for free. Verified run on
+`gemini-3.8-flash`: the provider-outage scenario, answered `external=true` with no commit blamed,
+7 calls, $0.00.
 
 ## Phases
 

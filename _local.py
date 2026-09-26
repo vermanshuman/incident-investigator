@@ -42,6 +42,7 @@ def local_env() -> dict[str, str]:
         "TARGET_DATABASE_URL": "sqlite:///" + os.path.join(ROOT, "data", "checkout.db").replace("\\", "/"),
         "TARGET_APP_URL": "http://localhost:8080",
         "TARGET_RESTART_FLAG": os.path.join(ROOT, "data", "restart-target"),
+        "LLM_CASSETTE_DIR": ROOT,  # so "cassettes/x.jsonl" means the repo's folder
     }
     # An activated venv would make uv warn and ignore the package's own env.
     env.pop("VIRTUAL_ENV", None)
