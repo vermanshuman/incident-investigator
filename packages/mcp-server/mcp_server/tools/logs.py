@@ -39,6 +39,7 @@ class LogSearchResult(BaseModel):
     sample_trace_ids: list[str]
 
 
+_ACCESS_RE = re.compile(r"^(GET|POST|PUT|PATCH|DELETE) \S+ -> \d{3}$")
 _ID_RE = re.compile(r"\b\w*\d[\w.]*\b")  # any token containing a digit: ids, hashes, numbers
 
 
@@ -101,6 +102,8 @@ def search_logs(
     )
     groups: dict[str, list[dict]] = {}
     for r in err_rows:
+        if _ACCESS_RE.match(r["message"]):  # "POST /x -> 500" duplicates the exception line
+            continue
         groups.setdefault(signature_of(r["message"]), []).append(r)
     signatures = sorted(
         (

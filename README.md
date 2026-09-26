@@ -61,6 +61,46 @@ python tools.py query_database "sql=select status, count(*) from orders group by
 All tools are read-only: SQLite is opened `mode=ro`, SQL is parsed and must be a single
 SELECT (row-capped, 5s timeout), git is read via `git log/show` only.
 
+## Run the agent
+
+Put an API key in `.env` (copy `.env.example`; `LLM_PROVIDER` = anthropic | openai | gemini), then:
+
+```bash
+python fault.py apply s01_null_check                 # break the shop
+python investigate.py "POST /checkout returning 500s since a few minutes ago, ~30% of requests"
+python evals.py                                      # all 3 cases: inject -> investigate -> score
+```
+
+The agent runs a hypothesis loop: triage (small model) -> 3-5 hypotheses -> repeat {one tool
+call, evaluate} until a hypothesis is confirmed by 2 independent tools or a budget ends -> report.
+Every citation must reuse a `source_ref` a tool actually returned; anything else is dropped by the
+validator.
+
+### Cost control
+
+Measured: **~$0.08 per investigation** on Claude Sonnet 5 (6 LLM calls, ~21K tokens), and each run
+prints its own cost.
+
+| Control | Effect |
+|---|---|
+| `AGENT_MAX_COST_USD` (default `0.10`) | hard cap: the loop stops and reports what it has |
+| `AGENT_MAX_STEPS` / `_TOKENS` / `_SECONDS` | step, token and wall-clock caps |
+| prompt caching | the system prompt is cached, so repeat calls bill it at ~10% |
+| `AGENT_CHEAP_REPORT=1` | write the report with the small model too |
+| `LLM_MODEL=claude-haiku-4-5` | cheapest end-to-end |
+
+### Free replay (demos, videos, UI work)
+
+Record a run once, then reproduce it exactly with **zero API calls**:
+
+```bash
+python investigate.py --record cassettes/s01.jsonl "POST /checkout returning 500s ..."
+python investigate.py --replay cassettes/s01.jsonl "POST /checkout returning 500s ..."
+```
+
+The cassette keys on the prompt, so a replay survives code changes that do not alter prompts.
+Tools still run for real against the local target app, so the evidence in a replay is live.
+
 ## Phases
 
 | # | Phase | Status |
@@ -68,7 +108,7 @@ SELECT (row-capped, 5s timeout), git is read via `git log/show` only.
 | 0 | Foundation (repo, skeletons, CI) | done |
 | 1 | Target app + fault injector (3 scenarios) | done |
 | 2 | MCP tools (logs, metrics, DB, git, deploys) | done |
-| 3 | Agent v1 (LangGraph loop, CLI run) + first evals | |
+| 3 | Agent v1 (LangGraph loop, CLI run) + first evals | done (needs your live test) |
 | 4 | Live UI (Redis events, SSE) | |
 | 5 | Approval gate + GitHub issue + OAuth | |
 | 6 | Knowledge base (pgvector) | |

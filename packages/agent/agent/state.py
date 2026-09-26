@@ -1,26 +1,35 @@
-"""LangGraph state (plan section 4)."""
+"""LangGraph state. The state IS the agent's memory: each LLM call sees a
+compact rendering of it (the "case file"), never the raw chat history."""
 
-from typing import Annotated, TypedDict
+from typing import TypedDict
 
-from langgraph.graph.message import add_messages
-
-from agent.schemas import Evaluation, Hypothesis, Report, Triage
+from agent.schemas import Hypothesis, Report, Triage
 
 
-class ToolCallRecord(TypedDict):
+class ToolRecord(TypedDict):
+    step: int
     tool: str
     args: dict
-    output_preview: str
+    tests_hypothesis: str
+    why: str
+    summary: str  # compact rendering shown to the model
+    refs: list[str]  # citable source_refs this call produced
     latency_ms: float
     error: str | None
+
+
+class Usage(TypedDict):
+    calls: int
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float
 
 
 class Budget(TypedDict):
     max_steps: int
     max_tokens: int
     max_seconds: int
-    steps: int
-    tokens: int
+    max_cost_usd: float
     started_at: float
 
 
@@ -29,18 +38,20 @@ class InvestigationState(TypedDict, total=False):
     run_id: str
     incident_title: str
     incident_description: str
+    incident_created_at: str
 
     # working memory
-    messages: Annotated[list, add_messages]
     triage: Triage | None
     hypotheses: list[Hypothesis]
-    selected_hypothesis_id: str | None
-    evaluations: list[Evaluation]
-    tool_calls: list[ToolCallRecord]
+    tool_calls: list[ToolRecord]
+    pending_call: dict | None  # ToolCall chosen by the last step
+    step: int
+    last_note: str
+    usage: Usage
     budget: Budget
 
     # outputs
     report: Report | None
+    stop_reason: str | None
     approval: str | None  # approved | edited | rejected
     github_issue_url: str | None
-    stop_reason: str | None
