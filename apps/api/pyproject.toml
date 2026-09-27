@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "FastAPI backend: REST, SSE streaming, auth"
 requires-python = ">=3.11"
 dependencies = [
+    "investigator-agent",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "sqlalchemy>=2.0",
@@ -22,6 +23,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5"]
+
+[tool.uv.sources]
+investigator-agent = { path = "../../packages/agent", editable = true }
 
 [tool.ruff]
 line-length = 100

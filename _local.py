@@ -34,16 +34,24 @@ def _parse_env_file(path: str) -> dict[str, str]:
     return values
 
 
+def _sqlite_url(*parts: str) -> str:
+    return "sqlite:///" + os.path.join(ROOT, *parts).replace("\\", "/")
+
+
 def local_env() -> dict[str, str]:
     env = {
         **os.environ,
         **_parse_env_file(os.path.join(ROOT, ".env")),
         "TARGET_REPO_PATH": os.path.join(ROOT, "target-repo"),
-        "TARGET_DATABASE_URL": "sqlite:///" + os.path.join(ROOT, "data", "checkout.db").replace("\\", "/"),
         "TARGET_APP_URL": "http://localhost:8080",
         "TARGET_RESTART_FLAG": os.path.join(ROOT, "data", "restart-target"),
         "LLM_CASSETTE_DIR": ROOT,  # so "cassettes/x.jsonl" means the repo's folder
     }
+    # .env ships the compose hostnames; running locally there is no "postgres"
+    # or "redis" host, so point the investigator's own DB at a local file.
+    if "@postgres" in env.get("DATABASE_URL", "") or not env.get("DATABASE_URL"):
+        env["DATABASE_URL"] = _sqlite_url("data", "investigator.db")
+    env["TARGET_DATABASE_URL"] = _sqlite_url("data", "checkout.db")
     # An activated venv would make uv warn and ignore the package's own env.
     env.pop("VIRTUAL_ENV", None)
     return env

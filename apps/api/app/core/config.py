@@ -12,6 +12,12 @@ class Settings(BaseSettings):
     session_secret: str = "change-me"
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # One tenant today; a request's org comes from here until auth lands (Phase 5/6).
+    default_org_slug: str = "demo"
+    default_org_name: str = "Demo Org"
+    # Demo mode: investigate replays a recorded cassette instead of calling an LLM.
+    demo_replay_dir: str = "cassettes"
+
     github_token: str = ""
     github_repo: str = ""
 

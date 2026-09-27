@@ -4,14 +4,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
-from app.core.db import Base, engine
-from app.routers import health, incidents, runs
+from app.core.db import Base, SessionLocal, engine
+from app.core.tenancy import ensure_default_org
+from app.routers import dashboard, health, incidents, runs
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # Phase 0 convenience: create tables directly. Replace with Alembic in Phase 1.
+    # Phase 0 convenience: create tables directly. Replace with Alembic later.
     Base.metadata.create_all(engine)
+    with SessionLocal() as db:
+        ensure_default_org(db)
     yield
 
 
@@ -28,3 +31,4 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(incidents.router)
 app.include_router(runs.router)
+app.include_router(dashboard.router)

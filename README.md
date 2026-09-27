@@ -111,6 +111,27 @@ key nor the target app: `cassettes/` is committed, and a fresh clone can watch a
 investigations. Matching prefers an exact prompt and otherwise plays the next recording of that
 step in order, because prompts carry a timestamp and the growing evidence ledger.
 
+## The live run view
+
+`python dev.py`, open http://localhost:3000, report an incident (the form has a preset per
+scenario) and click **Investigate**. The timeline fills in as the agent works: each step is
+clickable and opens the exact tool call, its raw output, and the `source_ref`s that may be cited
+from it. The hypotheses panel shows confidence per hypothesis, flipping to CONFIRMED or REFUTED
+live.
+
+The Investigate control also offers a **replay** per scenario, which runs the whole investigation
+from a cassette: no API key, no cost, identical every time. That is the demo path.
+
+Events are streamed over SSE and stored, so a refresh mid-run resumes from where the browser left
+off rather than restarting. The API executes runs off the request path behind an event bus with a
+Redis-shaped interface, so moving to a separate worker process later is a swap, not a rewrite.
+
+### Multi-tenancy
+
+Every tenant-owned row carries `org_id` from the start and every query filters on it, though there
+is one organization today. Runs record model calls, tokens and cost, and the dashboard shows them
+against the org's plan limits - the same numbers a SaaS would meter and bill on.
+
 ### Free path (no credit card)
 
 `LLM_PROVIDER=gemini` with an AI Studio key runs on Google's free tier. A full investigation is
@@ -130,7 +151,7 @@ step in order, because prompts carry a timestamp and the growing evidence ledger
 | 1 | Target app + fault injector (3 scenarios) | done |
 | 2 | MCP tools (logs, metrics, DB, git, deploys) | done |
 | 3 | Agent v1 (LangGraph loop, CLI run) + first evals | done (needs your live test) |
-| 4 | Live UI (Redis events, SSE) | |
+| 4 | Live UI (SSE streaming, evidence drawer) | done |
 | 5 | Approval gate + GitHub issue + OAuth | |
 | 6 | Knowledge base (pgvector) | |
 | 7 | Full eval suite + dashboard | |

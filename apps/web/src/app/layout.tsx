@@ -7,14 +7,14 @@ export const metadata: Metadata = {
   description: "Hypothesis-driven AI agent for production incident triage",
 };
 
-const nav = [
+const NAV = [
   ["/", "Dashboard"],
   ["/incidents", "Incidents"],
   ["/runs", "Agent Runs"],
   ["/logs", "Logs"],
   ["/knowledge", "Knowledge"],
   ["/integrations", "Integrations"],
-];
+] as const;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -23,11 +23,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <div className="shell">
           <aside className="sidebar">
             <div className="brand">Incident Investigator</div>
+            <div className="tagline">evidence-first incident triage</div>
             <nav>
-              {nav.map(([href, label]) => (
-                <Link key={href} href={href}>
-                  {label}
-                </Link>
+              {NAV.map(([href, label]) => (
+                <Link key={href} href={href}>{label}</Link>
               ))}
             </nav>
           </aside>

@@ -1,8 +1,11 @@
 """Core tables (plan section 7).
 
-incidents -> runs -> run_events / hypotheses / evidence / reports
+organizations -> incidents -> runs -> run_events / hypotheses / evidence / reports
 knowledge_items holds past incidents and runbooks with pgvector embeddings.
 eval_cases / eval_results back the evaluation harness.
+
+Everything tenant-owned carries org_id from the start. There is one org today,
+but adding that column later means rewriting every query, so it is here now.
 """
 
 import enum
@@ -50,10 +53,32 @@ class HypothesisStatus(str, enum.Enum):
     inconclusive = "inconclusive"
 
 
+DEFAULT_ORG_ID = "org_demo"
+
+
+class Organization(Base):
+    """The tenant. One row today; the column exists so multi-tenancy is a
+    configuration change rather than a migration of every table."""
+
+    __tablename__ = "organizations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(120))
+    slug: Mapped[str] = mapped_column(String(60), unique=True)
+    plan: Mapped[str] = mapped_column(String(20), default="free")  # free | pro
+    # Usage metering: what a plan limit and an invoice are computed from.
+    monthly_run_limit: Mapped[int] = mapped_column(Integer, default=100)
+    monthly_cost_limit_usd: Mapped[float] = mapped_column(Float, default=5.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    incidents: Mapped[list["Incident"]] = relationship(back_populates="org")
+
+
 class Incident(Base):
     __tablename__ = "incidents"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True, default=DEFAULT_ORG_ID)
     title: Mapped[str] = mapped_column(String(200))
     description: Mapped[str] = mapped_column(Text)
     severity: Mapped[Severity] = mapped_column(Enum(Severity), default=Severity.high)
@@ -63,6 +88,7 @@ class Incident(Base):
     source: Mapped[str] = mapped_column(String(20), default="manual")  # manual | alert
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    org: Mapped[Organization] = relationship(back_populates="incidents")
     runs: Mapped[list["Run"]] = relationship(back_populates="incident", cascade="all, delete")
 
 
@@ -70,6 +96,7 @@ class Run(Base):
     __tablename__ = "runs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True, default=DEFAULT_ORG_ID)
     incident_id: Mapped[str] = mapped_column(ForeignKey("incidents.id"))
     status: Mapped[RunStatus] = mapped_column(Enum(RunStatus), default=RunStatus.queued)
     thread_id: Mapped[str] = mapped_column(String(64), default=_uuid)  # LangGraph checkpoint
@@ -78,6 +105,11 @@ class Run(Base):
     step_count: Mapped[int] = mapped_column(Integer, default=0)
     token_count: Mapped[int] = mapped_column(Integer, default=0)
     cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    llm_calls: Mapped[int] = mapped_column(Integer, default=0)
+    model: Mapped[str | None] = mapped_column(String(60))
+    stop_reason: Mapped[str | None] = mapped_column(String(120))
+    error: Mapped[str | None] = mapped_column(Text)
+    replayed: Mapped[bool] = mapped_column(default=False)  # cassette run: no API cost
 
     incident: Mapped[Incident] = relationship(back_populates="runs")
     events: Mapped[list["RunEvent"]] = relationship(

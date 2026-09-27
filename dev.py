@@ -15,20 +15,15 @@ import sys
 import threading
 import time
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+from _local import ROOT, local_env
+
 TARGET_REPO = os.path.join(ROOT, "target-repo")
 DATA_DIR = os.path.join(ROOT, "data")
-TARGET_DB = os.path.join(DATA_DIR, "checkout.db")
 RESTART_FLAG = os.path.join(DATA_DIR, "restart-target")
 IS_WIN = os.name == "nt"
 
-env = {
-    **os.environ,
-    "TARGET_REPO_PATH": TARGET_REPO,
-    "TARGET_DATABASE_URL": "sqlite:///" + TARGET_DB.replace("\\", "/"),
-    "TARGET_APP_URL": "http://localhost:8080",
-    "TARGET_RESTART_FLAG": RESTART_FLAG,
-}
+# One environment for every child: target app paths, cassette dir and .env keys.
+env = local_env()
 
 SERVICES = {
     "api": ["uv", "run", "--directory", "apps/api", "uvicorn", "app.main:app",

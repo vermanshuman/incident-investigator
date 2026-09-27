@@ -1,0 +1,83 @@
+INFO:     Will watch for changes in these directories: ['E:\\Workspace\\tychon\\incident-investigator\\apps\\api']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [29644] using WatchFiles
+INFO:     Started server process [12168]
+INFO:     Waiting for application startup.
+
+> investigator-web@0.1.0 dev
+> next dev
+
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8080 (Press CTRL+C to quit)
+INFO:     Started server process [29368]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+   ▲ Next.js 15.5.25
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.50.9:3000
+
+ ✓ Starting...
+ ✓ Ready in 3s
+INFO:     127.0.0.1:52925 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52927 - "POST /incidents HTTP/1.1" 201 Created
+INFO:     127.0.0.1:52929 - "POST /incidents/d4520ff1-7ced-4c22-b9c8-10bd088a2373/investigate HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:52931 - "GET /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db HTTP/1.1" 200 OK
+ ○ Compiling /runs/[id] ...
+ ✓ Compiled /runs/[id] in 2.1s (605 modules)
+INFO:     127.0.0.1:60869 - "GET /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60871 - "GET /incidents/d4520ff1-7ced-4c22-b9c8-10bd088a2373 HTTP/1.1" 200 OK
+ GET /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db 200 in 4737ms
+INFO:     127.0.0.1:65026 - "GET /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db/stream?last_seq=9 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65026 - "OPTIONS /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65026 - "GET /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62411 - "GET /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db HTTP/1.1" 200 OK
+ ⚠ Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+ ✓ Compiled in 820ms (605 modules)
+INFO:     127.0.0.1:61154 - "GET /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61156 - "GET /incidents/d4520ff1-7ced-4c22-b9c8-10bd088a2373 HTTP/1.1" 200 OK
+ GET /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db 200 in 1170ms
+ ⨯ [Error: Objects are not valid as a React child (found: object with keys {summary, change, rollback}). If you meant to render a collection of children, use an array instead.] {
+  digest: '1963832148'
+}
+ GET /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db 500 in 2264ms
+ ✓ Compiled in 276ms (605 modules)
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+INFO:     127.0.0.1:59003 - "GET /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59005 - "GET /incidents/d4520ff1-7ced-4c22-b9c8-10bd088a2373 HTTP/1.1" 200 OK
+ GET /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db 200 in 1120ms
+INFO:     127.0.0.1:64192 - "GET /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db/stream?last_seq=9 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64192 - "OPTIONS /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64192 - "GET /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60620 - "GET /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60622 - "GET /incidents/d4520ff1-7ced-4c22-b9c8-10bd088a2373 HTTP/1.1" 200 OK
+ GET /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db 200 in 1085ms
+INFO:     127.0.0.1:64107 - "GET /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db/stream?last_seq=9 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64107 - "OPTIONS /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64107 - "GET /runs/cf5cbae6-37f3-46f2-9ba7-1d9213c843db HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50562 - "POST /incidents HTTP/1.1" 201 Created
+INFO:     127.0.0.1:50564 - "POST /incidents/bac77b11-d772-4dd7-a930-b2da2448bc45/investigate HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:59549 - "GET /runs/c626114e-0b60-43f1-b4b4-bb168077171f HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59551 - "GET /incidents/bac77b11-d772-4dd7-a930-b2da2448bc45 HTTP/1.1" 200 OK
+ GET /runs/c626114e-0b60-43f1-b4b4-bb168077171f 200 in 897ms
+INFO:     127.0.0.1:62196 - "GET /runs/c626114e-0b60-43f1-b4b4-bb168077171f/stream?last_seq=15 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62196 - "OPTIONS /runs/c626114e-0b60-43f1-b4b4-bb168077171f HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62196 - "GET /runs/c626114e-0b60-43f1-b4b4-bb168077171f HTTP/1.1" 200 OK
+ ○ Compiling / ...
+ ✓ Compiled / in 651ms (610 modules)
+INFO:     127.0.0.1:58636 - "GET /dashboard HTTP/1.1" 200 OK
+ GET / 200 in 1239ms
+ ○ Compiling /incidents ...
+ ✓ Compiled /incidents in 653ms (620 modules)
+INFO:     127.0.0.1:58636 - "GET /incidents HTTP/1.1" 200 OK
+ GET /incidents 200 in 1298ms
+[?25h
+[dev] started api (pid 9612)
+[dev] started target (pid 15832)
+[dev] started web (pid 4648)
+
+[dev] web http://localhost:3000  api http://localhost:8000/docs  target http://localhost:8080/docs
+[dev] inject a fault:  python fault.py apply s01_null_check     (python fault.py list)
+[dev] Ctrl+C to stop all
+
+[dev] a service exited; shutting down
+[dev] stopped
