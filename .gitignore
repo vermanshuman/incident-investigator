@@ -33,3 +33,6 @@ Thumbs.db
 
 # recorded LLM runs are kept (they make demos free); drop this line to ignore them
 #cassettes/
+
+# local run logs
+dev.log
