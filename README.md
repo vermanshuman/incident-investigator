@@ -126,6 +126,23 @@ Events are streamed over SSE and stored, so a refresh mid-run resumes from where
 off rather than restarting. The API executes runs off the request path behind an event bus with a
 Redis-shaped interface, so moving to a separate worker process later is a swap, not a rewrite.
 
+## The approval gate
+
+The agent stops after writing its report. Nothing is filed until a person signs in, reviews it and
+clicks **Approve** - and the reviewer can correct the root cause or the fix first, in which case
+their version is what gets posted.
+
+- **Creating a GitHub issue is the only write action in the system**, and it is not an agent tool.
+  It runs from the trusted side after approval, so no model output can trigger it, and the token
+  never enters a prompt.
+- **A paused run is durable.** Graph state is checkpointed to `data/checkpoints.sqlite`, so a run
+  can wait hours and still resume - verified by stopping the whole stack and approving afterwards.
+- **Decisions are audited**: who approved or rejected, which fields they edited, and the issue that
+  resulted. `GET /runs/{id}/audit`.
+- **Without `GITHUB_TOKEN` the approval is a dry run**: the flow works end to end and says plainly
+  that nothing was posted. Set `GITHUB_TOKEN` (issues:write only) and `GITHUB_REPO` to file for
+  real.
+
 ### Multi-tenancy
 
 Every tenant-owned row carries `org_id` from the start and every query filters on it, though there
@@ -152,7 +169,7 @@ against the org's plan limits - the same numbers a SaaS would meter and bill on.
 | 2 | MCP tools (logs, metrics, DB, git, deploys) | done |
 | 3 | Agent v1 (LangGraph loop, CLI run) + first evals | done (needs your live test) |
 | 4 | Live UI (SSE streaming, evidence drawer) | done |
-| 5 | Approval gate + GitHub issue + OAuth | |
+| 5 | Approval gate + GitHub issue + sign-in | done |
 | 6 | Knowledge base (pgvector) | |
 | 7 | Full eval suite + dashboard | |
 | 8 | Polish: OTel, docs, demo video | |

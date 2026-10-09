@@ -46,6 +46,8 @@ def local_env() -> dict[str, str]:
         "TARGET_APP_URL": "http://localhost:8080",
         "TARGET_RESTART_FLAG": os.path.join(ROOT, "data", "restart-target"),
         "LLM_CASSETTE_DIR": ROOT,  # so "cassettes/x.jsonl" means the repo's folder
+        # A run paused at the approval gate must survive a restart.
+        "AGENT_CHECKPOINT_DB": os.path.join(ROOT, "data", "checkpoints.sqlite"),
     }
     # .env ships the compose hostnames; running locally there is no "postgres"
     # or "redis" host, so point the investigator's own DB at a local file.

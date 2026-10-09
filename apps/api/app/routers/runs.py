@@ -1,5 +1,6 @@
 import asyncio
 import json
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -8,11 +9,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
+from app.core.auth import current_user
 from app.core.db import get_db
 from app.core.events import bus, run_channel
 from app.core.tenancy import current_org
-from app.models import Hypothesis, Organization, Report, Run, RunEvent, RunStatus
+from app.models import AuditEvent, Hypothesis, Organization, Report, Run, RunEvent, RunStatus, User
 from app.routers.incidents import RunOut
+from app.services import runs as run_service
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -130,3 +133,59 @@ async def stream_events(run_id: str, request: Request, last_seq: int = 0,
                 yield {"event": "run", "data": json.dumps(event, default=str)}
 
     return EventSourceResponse(generator())
+
+
+class Decision(BaseModel):
+    approved: bool
+    # A reviewer may correct the report before it is filed; only these fields
+    # are editable, and they are re-validated by the agent before use.
+    root_cause: str | None = None
+    confidence: str | None = None
+    fix_summary: str | None = None
+
+    def overrides(self) -> dict:
+        mapping = {"root_cause": self.root_cause, "confidence": self.confidence}
+        edits = {k: v for k, v in mapping.items() if v is not None}
+        if self.fix_summary is not None:
+            edits["fix"] = {"summary": self.fix_summary}
+        return edits
+
+
+class AuditOut(BaseModel):
+    actor: str
+    action: str
+    detail: dict
+    ts: datetime
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/{run_id}/audit", response_model=list[AuditOut])
+def run_audit(run_id: str, db: Session = Depends(get_db),
+              org: Organization = Depends(current_org)) -> list[AuditEvent]:
+    _scoped(db, org, run_id)
+    return list(db.scalars(
+        select(AuditEvent).where(AuditEvent.run_id == run_id).order_by(AuditEvent.ts)
+    ))
+
+
+@router.post("/{run_id}/decision", response_model=RunOut, status_code=202)
+async def decide(run_id: str, body: Decision, db: Session = Depends(get_db),
+                 org: Organization = Depends(current_org),
+                 user: User = Depends(current_user)) -> Run:
+    """Approve or reject a run paused at the gate.
+
+    Approving is what lets the agent take its one write action, so it requires
+    a signed-in reviewer and is recorded in the audit trail.
+    """
+    run = _scoped(db, org, run_id)
+    if run.status != RunStatus.awaiting_approval:
+        raise HTTPException(409, f"run is {run.status.value}, not awaiting approval")
+    overrides = body.overrides()
+    if overrides:
+        db.add(AuditEvent(org_id=org.id, run_id=run.id, actor=user.name,
+                          action="edited", detail={"fields": sorted(overrides)}))
+        db.commit()
+    await run_service.decide_run(run, approved=body.approved, actor=user.name, overrides=overrides or None)
+    db.refresh(run)
+    return run

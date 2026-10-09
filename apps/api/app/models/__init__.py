@@ -74,6 +74,37 @@ class Organization(Base):
     incidents: Mapped[list["Incident"]] = relationship(back_populates="org")
 
 
+class User(Base):
+    """A reviewer. Approvals must name a person, not "the system"."""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True, default=DEFAULT_ORG_ID)
+    name: Mapped[str] = mapped_column(String(120))
+    email: Mapped[str | None] = mapped_column(String(200))
+    github_login: Mapped[str | None] = mapped_column(String(80))
+    role: Mapped[str] = mapped_column(String(20), default="approver")  # admin | approver | viewer
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AuditEvent(Base):
+    """Who did what, kept whether or not the action succeeded.
+
+    The approval gate is only worth anything if the decision is recorded.
+    """
+
+    __tablename__ = "audit_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True, default=DEFAULT_ORG_ID)
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id"), index=True)
+    actor: Mapped[str] = mapped_column(String(120))
+    action: Mapped[str] = mapped_column(String(40))  # approved | rejected | edited | issue_created
+    detail: Mapped[dict] = mapped_column(JSON, default=dict)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Incident(Base):
     __tablename__ = "incidents"
 

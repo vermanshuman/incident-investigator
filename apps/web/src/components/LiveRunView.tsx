@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   asReportView,
   STATUS_COLOR,
   type Hypothesis,
   type ReportView,
+  type Report,
   type RunDetail,
   type RunEvent,
+  type UserInfo,
 } from "@/lib/api";
+import { ApprovalPanel } from "./ApprovalPanel";
 import { EvidencePanel } from "./EvidencePanel";
 import { HypothesesPanel } from "./HypothesesPanel";
 
@@ -39,6 +42,11 @@ export function LiveRunView({ initial }: { initial: RunDetail }) {
   const [report, setReport] = useState<ReportView | null>(asReportView(initial.report));
   const [selected, setSelected] = useState<number | null>(null);
   const [live, setLive] = useState(false);
+  const [stored, setStored] = useState<Report | null>(initial.report);
+  const [issueUrl, setIssueUrl] = useState<string | null>(initial.report?.github_issue_url ?? null);
+  // The session cookie lives in the browser, so the reviewer is resolved here
+  // rather than during server rendering.
+  const [user, setUser] = useState<UserInfo | null>(null);
   const timelineEnd = useRef<HTMLDivElement>(null);
 
   const lastSeq = useMemo(
@@ -48,6 +56,22 @@ export function LiveRunView({ initial }: { initial: RunDetail }) {
   // The stream is opened once per run; lastSeq is read at that moment only.
   const seqRef = useRef(lastSeq);
   seqRef.current = lastSeq;
+
+  const refreshUser = useCallback(() => {
+    api.me().then(setUser).catch(() => setUser(null));
+  }, []);
+
+  const refreshRun = useCallback(() => {
+    api.run(initial.id).then((fresh) => {
+      setStatus(fresh.status);
+      setStored(fresh.report);
+      setReport(asReportView(fresh.report));
+      setIssueUrl(fresh.report?.github_issue_url ?? null);
+      setEvents(fresh.events);
+    }).catch(() => undefined);
+  }, [initial.id]);
+
+  useEffect(refreshUser, [refreshUser]);
 
   useEffect(() => {
     const source = new EventSource(api.streamUrl(initial.id, seqRef.current));
@@ -65,6 +89,7 @@ export function LiveRunView({ initial }: { initial: RunDetail }) {
         });
       }
       if (event.report) setReport(asReportView(event.report));
+      if (event.github_issue_url) setIssueUrl(event.github_issue_url);
       if (event.status) setStatus(event.status);
     });
 
@@ -75,7 +100,9 @@ export function LiveRunView({ initial }: { initial: RunDetail }) {
       api.run(initial.id).then((fresh) => {
         setHypotheses(fresh.hypotheses);
         setStatus(fresh.status);
+        setStored(fresh.report);
         setReport(asReportView(fresh.report));
+        setIssueUrl(fresh.report?.github_issue_url ?? null);
         setUsage({ calls: fresh.llm_calls, tokens: fresh.token_count, cost: fresh.cost_usd });
       }).catch(() => undefined);
     });
@@ -91,6 +118,7 @@ export function LiveRunView({ initial }: { initial: RunDetail }) {
   const selectedEvent = events.find((e) => e.seq === selected) ?? null;
   const running = status === "running" || status === "queued";
 
+
   return (
     <>
       <div className="runbar">
@@ -105,6 +133,22 @@ export function LiveRunView({ initial }: { initial: RunDetail }) {
       </div>
 
       {initial.error && <div className="card error">Run failed: {initial.error}</div>}
+
+      {issueUrl && (
+        <div className="card ok">
+          Issue filed: <a href={issueUrl} target="_blank" rel="noreferrer">{issueUrl}</a>
+        </div>
+      )}
+
+      {status === "awaiting_approval" && stored && (
+        <ApprovalPanel
+          runId={initial.id}
+          report={stored}
+          user={user}
+          onSignedIn={refreshUser}
+          onDecided={() => window.setTimeout(refreshRun, 1200)}
+        />
+      )}
 
       <div className="runlayout">
         <section className="card timeline" aria-label="Investigation timeline">

@@ -14,12 +14,14 @@ import asyncio
 import os
 from datetime import UTC, datetime
 
-from agent.runner import investigate
+from agent.runner import investigate, resume
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.db import SessionLocal
 from app.core.events import bus, run_channel
 from app.models import (
+    AuditEvent,
     Hypothesis,
     HypothesisStatus,
     Incident,
@@ -135,4 +137,78 @@ async def start_run(run: Run, incident: Incident, replay: str | None = None) -> 
         db.commit()
     asyncio.create_task(asyncio.to_thread(
         _blocking_investigate, run.id, run.org_id, incident.title, incident.description, loop, replay
+    ))
+
+
+def _event_recorder(run_id: str, org_id: str, loop: asyncio.AbstractEventLoop, start_seq: int):
+    """Persist and publish each event of a resumed run, continuing the sequence."""
+    channel = run_channel(org_id, run_id)
+    state = {"seq": start_seq}
+
+    def on_event(event: dict) -> None:
+        state["seq"] = event["seq"]
+        with SessionLocal() as db:
+            _persist_event(db, db.get(Run, run_id), event["seq"], event)
+            db.commit()
+        bus.publish_threadsafe(loop, channel, event)
+
+    return on_event, state
+
+
+def _decide(run_id: str, org_id: str, approved: bool, actor: str, overrides: dict | None,
+            loop: asyncio.AbstractEventLoop, start_seq: int) -> None:
+    """Runs in a worker thread: resume the paused graph and record the outcome."""
+    channel = run_channel(org_id, run_id)
+    on_event, seq_state = _event_recorder(run_id, org_id, loop, start_seq)
+    issue_url, error = None, None
+    try:
+        final = resume(run_id, approved=approved, report_overrides=overrides,
+                       on_event=on_event, start_seq=start_seq)
+        issue_url = final.get("github_issue_url")
+    except Exception as exc:  # noqa: BLE001 - a failed decision must be visible
+        error = f"{type(exc).__name__}: {exc}"[:500]
+
+    with SessionLocal() as db:
+        run = db.get(Run, run_id)
+        run.status = RunStatus.failed if error else (
+            RunStatus.completed if approved else RunStatus.rejected
+        )
+        run.error = error or run.error
+        run.finished_at = datetime.now(UTC)
+        report = db.query(Report).filter(Report.run_id == run_id).one_or_none()
+        if report is not None:
+            report.approved_by = actor
+            report.approved_at = datetime.now(UTC)
+            report.github_issue_url = issue_url
+        incident = db.get(Incident, run.incident_id)
+        incident.status = IncidentStatus.resolved if approved and not error else IncidentStatus.open
+        if issue_url:
+            db.add(AuditEvent(org_id=org_id, run_id=run_id, actor=actor,
+                              action="issue_created", detail={"url": issue_url}))
+        db.commit()
+
+    bus.publish_threadsafe(loop, channel, {
+        "seq": seq_state["seq"] + 1, "node": "finished",
+        "note": error or (f"Issue created: {issue_url}" if issue_url else
+                          ("Approved" if approved else "Rejected")),
+        "status": (RunStatus.failed if error else
+                   (RunStatus.completed if approved else RunStatus.rejected)).value,
+        "github_issue_url": issue_url, "error": error,
+    })
+    asyncio.run_coroutine_threadsafe(bus.close(channel), loop)
+
+
+async def decide_run(run: Run, approved: bool, actor: str, overrides: dict | None = None) -> None:
+    """Approve or reject a paused run, off the request path."""
+    loop = asyncio.get_running_loop()
+    with SessionLocal() as db:
+        row = db.get(Run, run.id)
+        row.status = RunStatus.running
+        last_seq = db.query(func.max(RunEvent.seq)).filter(RunEvent.run_id == run.id).scalar() or 0
+        db.add(AuditEvent(org_id=run.org_id, run_id=run.id, actor=actor,
+                          action="approved" if approved else "rejected",
+                          detail={"edited_fields": sorted(overrides or {})}))
+        db.commit()
+    asyncio.create_task(asyncio.to_thread(
+        _decide, run.id, run.org_id, approved, actor, overrides, loop, last_seq
     ))

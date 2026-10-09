@@ -158,3 +158,8 @@ code {
   .content { padding: 16px; }
   table { font-size: 13px; }
 }
+
+/* --- approval gate --- */
+.card.gate { border-color: var(--warn); }
+.card.ok { border-color: var(--ok); }
+.gate .form label { margin-top: 10px; }

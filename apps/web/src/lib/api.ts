@@ -64,6 +64,7 @@ export type RunEvent = {
   hypotheses?: Hypothesis[];
   usage?: { calls: number; input_tokens: number; output_tokens: number; cost_usd: number };
   report?: AgentReport;
+  github_issue_url?: string;
   stop_reason?: string;
   status?: string;
   error?: string | null;
@@ -115,6 +116,17 @@ export type RunDetail = Run & {
   report: Report | null;
 };
 
+export type UserInfo = { id: string; name: string; email: string | null; role: string };
+
+export type AuditEntry = { actor: string; action: string; detail: Record<string, unknown>; ts: string };
+
+export type DecisionBody = {
+  approved: boolean;
+  root_cause?: string;
+  confidence?: string;
+  fix_summary?: string;
+};
+
 export type DashboardStats = {
   org: string;
   plan: string;
@@ -136,11 +148,17 @@ export type DashboardStats = {
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     cache: "no-store",
+    // The session cookie identifies the reviewer, so it must travel with
+    // every request - including the server-rendered ones.
+    credentials: "include",
     headers: { "content-type": "application/json" },
     ...init,
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText} on ${path}`);
-  return res.json();
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(detail.slice(0, 200) || `${res.status} ${res.statusText} on ${path}`);
+  }
+  return res.status === 204 ? (undefined as T) : res.json();
 }
 
 export const api = {
@@ -158,6 +176,13 @@ export const api = {
   runs: () => json<Run[]>("/runs"),
   dashboard: () => json<DashboardStats>("/dashboard"),
   streamUrl: (id: string, lastSeq = 0) => `${API_URL}/runs/${id}/stream?last_seq=${lastSeq}`,
+
+  me: () => json<UserInfo | null>("/auth/me"),
+  signin: (name: string) => json<UserInfo>("/auth/signin", { method: "POST", body: JSON.stringify({ name }) }),
+  signout: () => json<void>("/auth/signout", { method: "POST" }),
+  decide: (runId: string, body: DecisionBody) =>
+    json<Run>(`/runs/${runId}/decision`, { method: "POST", body: JSON.stringify(body) }),
+  audit: (runId: string) => json<AuditEntry[]>(`/runs/${runId}/audit`),
 };
 
 export const STATUS_COLOR: Record<string, string> = {

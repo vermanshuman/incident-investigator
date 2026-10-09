@@ -141,3 +141,120 @@ def test_a_failing_agent_surfaces_the_error(client, incident, monkeypatch):
     run = _await_run(run_id)
     assert run.status == RunStatus.failed
     assert "model exploded" in run.error
+
+
+# --- the approval gate -------------------------------------------------
+
+def _paused_run(client, incident) -> str:
+    run_id = client.post(f"/incidents/{incident['id']}/investigate").json()["id"]
+    _await_run(run_id)
+    return run_id
+
+
+def _signin(client, name="Priya Nair"):
+    assert client.post("/auth/signin", json={"name": name}).status_code == 200
+
+
+def test_approval_requires_a_signed_in_reviewer(client, incident, fake_agent):
+    run_id = _paused_run(client, incident)
+    client.post("/auth/signout")
+    r = client.post(f"/runs/{run_id}/decision", json={"approved": True})
+    assert r.status_code == 401
+
+    with SessionLocal() as db:
+        assert db.get(Run, run_id).status == RunStatus.awaiting_approval  # still gated
+
+
+def test_approving_records_who_and_files_the_issue(client, incident, fake_agent, monkeypatch):
+    filed = {}
+
+    def fake_resume(thread_id, approved, report_overrides=None, on_event=None, start_seq=0, saver=None):
+        filed["approved"] = approved
+        filed["overrides"] = report_overrides
+        if on_event:
+            on_event({"seq": start_seq + 1, "node": "create_github_issue", "note": "Opened issue #7"})
+        return {"github_issue_url": "https://github.com/acme/shop/issues/7"}
+
+    monkeypatch.setattr("app.services.runs.resume", fake_resume)
+    run_id = _paused_run(client, incident)
+    _signin(client)
+
+    assert client.post(f"/runs/{run_id}/decision", json={"approved": True}).status_code == 202
+    run = _await_terminal(run_id)
+    assert run.status == RunStatus.completed
+    assert filed["approved"] is True
+
+    detail = client.get(f"/runs/{run_id}").json()
+    assert detail["report"]["approved_by"] == "Priya Nair"
+    assert detail["report"]["github_issue_url"].endswith("/7")
+
+    audit = client.get(f"/runs/{run_id}/audit").json()
+    actions = [(a["actor"], a["action"]) for a in audit]
+    assert ("Priya Nair", "approved") in actions
+    assert ("Priya Nair", "issue_created") in actions
+
+
+def test_rejecting_files_nothing_but_is_recorded(client, incident, fake_agent, monkeypatch):
+    calls = []
+
+    def fake_resume(thread_id, approved, report_overrides=None, on_event=None, start_seq=0, saver=None):
+        calls.append(approved)
+        return {"approval": "rejected"}
+
+    monkeypatch.setattr("app.services.runs.resume", fake_resume)
+    run_id = _paused_run(client, incident)
+    _signin(client, "Sam Okoro")
+
+    client.post(f"/runs/{run_id}/decision", json={"approved": False})
+    run = _await_terminal(run_id)
+    assert run.status == RunStatus.rejected
+    assert calls == [False]
+
+    audit = client.get(f"/runs/{run_id}/audit").json()
+    assert [(a["actor"], a["action"]) for a in audit] == [("Sam Okoro", "rejected")]
+    assert client.get(f"/runs/{run_id}").json()["report"]["github_issue_url"] is None
+
+
+def test_reviewer_edits_are_passed_through_and_recorded(client, incident, fake_agent, monkeypatch):
+    seen = {}
+
+    def fake_resume(thread_id, approved, report_overrides=None, on_event=None, start_seq=0, saver=None):
+        seen["overrides"] = report_overrides
+        return {"github_issue_url": "https://github.com/acme/shop/issues/8"}
+
+    monkeypatch.setattr("app.services.runs.resume", fake_resume)
+    run_id = _paused_run(client, incident)
+    _signin(client)
+
+    client.post(f"/runs/{run_id}/decision", json={
+        "approved": True, "root_cause": "Reviewer rewrote this", "fix_summary": "revert it"})
+    _await_terminal(run_id)
+
+    assert seen["overrides"] == {"root_cause": "Reviewer rewrote this", "fix": {"summary": "revert it"}}
+    audit = client.get(f"/runs/{run_id}/audit").json()
+    edited = next(a for a in audit if a["action"] == "edited")
+    assert edited["detail"]["fields"] == ["fix", "root_cause"]
+
+
+def test_a_run_cannot_be_decided_twice(client, incident, fake_agent, monkeypatch):
+    monkeypatch.setattr("app.services.runs.resume",
+                        lambda *a, **kw: {"github_issue_url": None})
+    run_id = _paused_run(client, incident)
+    _signin(client)
+    client.post(f"/runs/{run_id}/decision", json={"approved": True})
+    _await_terminal(run_id)
+
+    again = client.post(f"/runs/{run_id}/decision", json={"approved": True})
+    assert again.status_code == 409
+
+
+def _await_terminal(run_id: str, timeout: float = 10.0) -> Run:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        with SessionLocal() as db:
+            run = db.get(Run, run_id)
+            if run.status in {RunStatus.completed, RunStatus.rejected, RunStatus.failed}:
+                db.expunge(run)
+                return run
+        time.sleep(0.05)
+    raise AssertionError("decision did not settle")

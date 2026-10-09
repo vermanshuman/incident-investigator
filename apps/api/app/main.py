@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.core.db import Base, SessionLocal, engine
 from app.core.tenancy import ensure_default_org
-from app.routers import dashboard, health, incidents, runs
+from app.routers import auth, dashboard, health, incidents, runs
 
 
 @asynccontextmanager
@@ -22,13 +22,14 @@ app = FastAPI(title="Incident Investigator API", version="0.1.0", lifespan=lifes
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_settings().cors_origins,
-    allow_credentials=True,
+    allow_origins=get_settings().cors_origins,  # explicit origins: credentials forbid "*"
+    allow_credentials=True,  # the session cookie identifies the reviewer
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(health.router)
+app.include_router(auth.router)
 app.include_router(incidents.router)
 app.include_router(runs.router)
 app.include_router(dashboard.router)

@@ -9,7 +9,7 @@ import os
 import time
 from datetime import UTC, datetime
 
-from agent import corroboration, prompts
+from agent import corroboration, github, prompts
 from agent.guardrails import budget_exceeded, repeated_tool_call
 from agent.llm import Call, call_structured
 from agent.schemas import (
@@ -183,9 +183,49 @@ def write_report(state: InvestigationState) -> dict:
     return {**_account(state, call), "report": r, "last_note": f"Report: {r.root_cause[:80]}"}
 
 
+def report_markdown(state: InvestigationState) -> str:
+    """The issue body: the report, plus how the run that produced it went."""
+    r = state["report"]
+    u = state.get("usage") or {}
+    cites = "\n".join(f"- `{c.source_ref}` ({c.tool}): {c.excerpt}" for c in r.supporting_evidence)
+    external = "  ·  cause is external to our code" if r.is_external else ""
+    return "\n".join([
+        f"## Summary\n{r.summary}",
+        f"\n## Customer impact\n{r.customer_impact}",
+        "\n## Timeline\n" + "\n".join(f"- {t}" for t in r.timeline),
+        f"\n## Root cause\n{r.root_cause}\n\nConfidence: **{r.confidence.value}**{external}",
+        f"\n## Evidence\n{cites}" if cites else "\n## Evidence\n_none cited_",
+        "\n## Ruled out\n" + "\n".join(f"- {x}" for x in r.ruled_out),
+        f"\n## Proposed fix (unverified)\n{r.fix.summary}\n\n```\n{r.fix.change}\n```\n"
+        + f"Rollback: {r.fix.rollback}",
+        "\n## Not checked\n" + "\n".join(f"- {x}" for x in r.unchecked_areas),
+        f"\n---\n_Investigated by the incident agent: {state.get('step', 0)} evidence steps, "
+        + f"{u.get('calls', 0)} model calls, stop reason `{state.get('stop_reason')}`. "
+        + "Every claim cites a tool result; the fix is a suggestion and has not been tested._",
+    ])
+
+
 def create_github_issue(state: InvestigationState) -> dict:
-    # Phase 5: real GitHub issue after human approval. Until then: no-op.
-    return {"github_issue_url": None, "last_note": "GitHub issue creation not enabled yet"}
+    """The only write action, and it runs only after a human approved."""
+    if state.get("approval") != "approved":
+        return {"last_note": "Not approved: no issue created"}
+    if state.get("report") is None:
+        return {"last_note": "No report to file"}
+
+    report = state["report"]
+    labels = ["incident", "ai-investigated"]
+    if report.is_external:
+        labels.append("external-cause")
+    try:
+        result = github.create_issue(
+            f"[incident] {state['incident_title']}", report_markdown(state), labels
+        )
+    except github.GitHubError as exc:
+        return {"last_note": f"GitHub issue failed: {exc}"[:160]}
+    if result["dry_run"]:
+        return {"last_note": f"Dry run: no issue created ({result['reason']})"}
+    return {"github_issue_url": result["url"],
+            "last_note": f"Opened GitHub issue #{result['number']}"}
 
 
 def elapsed(state: InvestigationState) -> float:
