@@ -5,9 +5,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.auth import Principal, requires
 from app.core.db import get_db
+from app.core.plans import LimitReached, check_can_start_run
 from app.core.tenancy import current_org
-from app.models import Incident, IncidentStatus, Organization, Run, RunStatus, Severity
+from app.models import Incident, IncidentStatus, Organization, Role, Run, RunStatus, Severity
 from app.services import runs as run_service
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
@@ -66,7 +68,8 @@ def _out(incident: Incident) -> IncidentOut:
 
 
 @router.get("", response_model=list[IncidentOut])
-def list_incidents(db: Session = Depends(get_db), org: Organization = Depends(current_org)) -> list[IncidentOut]:
+def list_incidents(db: Session = Depends(get_db), org: Organization = Depends(current_org),
+                   _: Principal = Depends(requires(Role.viewer))) -> list[IncidentOut]:
     rows = db.scalars(
         select(Incident).where(Incident.org_id == org.id).order_by(Incident.created_at.desc())
     )
@@ -75,7 +78,8 @@ def list_incidents(db: Session = Depends(get_db), org: Organization = Depends(cu
 
 @router.post("", response_model=IncidentOut, status_code=201)
 def create_incident(body: IncidentCreate, db: Session = Depends(get_db),
-                    org: Organization = Depends(current_org)) -> IncidentOut:
+                    org: Organization = Depends(current_org),
+                    _: Principal = Depends(requires(Role.approver))) -> IncidentOut:
     incident = Incident(org_id=org.id, **body.model_dump())
     db.add(incident)
     db.commit()
@@ -91,21 +95,29 @@ def _get_scoped(db: Session, org: Organization, incident_id: str) -> Incident:
 
 @router.get("/{incident_id}", response_model=IncidentOut)
 def get_incident(incident_id: str, db: Session = Depends(get_db),
-                 org: Organization = Depends(current_org)) -> IncidentOut:
+                 org: Organization = Depends(current_org),
+                 _: Principal = Depends(requires(Role.viewer))) -> IncidentOut:
     return _out(_get_scoped(db, org, incident_id))
 
 
 @router.post("/{incident_id}/investigate", response_model=RunOut, status_code=202)
 async def investigate(incident_id: str, body: InvestigateRequest | None = None,
                       db: Session = Depends(get_db),
-                      org: Organization = Depends(current_org)) -> Run:
+                      org: Organization = Depends(current_org),
+                      _: Principal = Depends(requires(Role.approver))) -> Run:
     """Create a run and start it off the request path. Returns immediately so
     the UI can subscribe to the event stream while the agent works."""
     incident = _get_scoped(db, org, incident_id)
-    run = Run(org_id=org.id, incident_id=incident.id)
+    replay = body.replay if body else None
+    try:
+        # A replay spends nothing, so it is never blocked by a plan limit.
+        check_can_start_run(db, org, replayed=bool(replay))
+    except LimitReached as exc:
+        raise HTTPException(402, str(exc)) from exc
+    run = Run(org_id=org.id, incident_id=incident.id, replayed=bool(replay))
     incident.status = IncidentStatus.investigating
     db.add(run)
     db.commit()
     db.refresh(run)
-    await run_service.start_run(run, incident, replay=(body.replay if body else None))
+    await run_service.start_run(run, incident, replay=replay)
     return run

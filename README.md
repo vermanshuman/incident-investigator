@@ -143,11 +143,32 @@ their version is what gets posted.
   that nothing was posted. Set `GITHUB_TOKEN` (issues:write only) and `GITHUB_REPO` to file for
   real.
 
-### Multi-tenancy
+## Multi-tenant SaaS
 
-Every tenant-owned row carries `org_id` from the start and every query filters on it, though there
-is one organization today. Runs record model calls, tokens and cost, and the dashboard shows them
-against the org's plan limits - the same numbers a SaaS would meter and bill on.
+Organizations are the tenant boundary. Every tenant-owned row carries `org_id`, every query filters
+on it, and a request for another org's incident is a 404 rather than a filtered list - tests cover
+that directly.
+
+| Concern | How |
+|---|---|
+| Roles | `owner > admin > approver > viewer`, held per organization in `memberships`, so one person can hold different roles in different orgs |
+| Approval | needs a signed-in **person**: an API key is refused even though it may start investigations |
+| Plans | Free (25 runs, $2, 3 seats) and Pro (500 runs, $50, 25 seats); limits live on the org so a tenant can be given a bespoke ceiling |
+| Metering | usage is computed from runs for the calendar month: investigations, spend and tokens |
+| Limits | exceeding them returns **402** and blocks new runs - but never a replay, which spends nothing, and never the recording of an incoming alert |
+| API keys | hashed, shown once, revocable, with last-used tracking |
+| Billing | Stripe Checkout in test mode; without keys an upgrade is applied directly and flagged `simulated` |
+| Audit | approvals, edits, role changes, key creation and plan changes, all with an actor |
+
+### Alerts in without a browser
+
+```bash
+curl -X POST http://localhost:8000/v1/incidents   -H "Authorization: Bearer $INVESTIGATOR_API_KEY"   -H "content-type: application/json"   -d '{"title":"Checkout 500s","description":"Error rate above 20% for 5 minutes"}'
+```
+
+That opens the incident and starts the investigation. If the plan is exhausted the incident is
+still recorded and the response says why nothing ran - losing an alert to a billing limit would be
+worse than not investigating it.
 
 ### Free path (no credit card)
 
@@ -170,8 +191,8 @@ against the org's plan limits - the same numbers a SaaS would meter and bill on.
 | 3 | Agent v1 (LangGraph loop, CLI run) + first evals | done (needs your live test) |
 | 4 | Live UI (SSE streaming, evidence drawer) | done |
 | 5 | Approval gate + GitHub issue + sign-in | done |
-| 6 | Knowledge base (pgvector) | |
-| 7 | Full eval suite + dashboard | |
+| 6 | SaaS layer: orgs, roles, plans, API keys, billing | done |
+| 7 | Knowledge base (pgvector) + full eval suite | |
 | 8 | Polish: OTel, docs, demo video | |
 
 See [docs/architecture.md](docs/architecture.md) and [docs/threat-model.md](docs/threat-model.md).

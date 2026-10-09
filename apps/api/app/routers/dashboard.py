@@ -5,9 +5,10 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.auth import Principal, requires
 from app.core.db import get_db
 from app.core.tenancy import current_org
-from app.models import Incident, IncidentStatus, Organization, Run, RunStatus
+from app.models import Incident, IncidentStatus, Organization, Role, Run, RunStatus
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -33,7 +34,8 @@ class Stats(BaseModel):
 
 
 @router.get("", response_model=Stats)
-def stats(db: Session = Depends(get_db), org: Organization = Depends(current_org)) -> Stats:
+def stats(db: Session = Depends(get_db), org: Organization = Depends(current_org),
+          _: Principal = Depends(requires(Role.viewer))) -> Stats:
     def count(*where) -> int:
         return db.scalar(select(func.count()).select_from(Run).where(Run.org_id == org.id, *where)) or 0
 

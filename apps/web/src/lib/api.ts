@@ -116,7 +116,73 @@ export type RunDetail = Run & {
   report: Report | null;
 };
 
-export type UserInfo = { id: string; name: string; email: string | null; role: string };
+export type Role = "owner" | "admin" | "approver" | "viewer";
+
+export type OrgSummary = { id: string; name: string; slug: string; plan: string; role: Role };
+
+export type UserInfo = {
+  id: string;
+  name: string;
+  email: string | null;
+  role: Role;
+  org: OrgSummary;
+  orgs: OrgSummary[];
+};
+
+export type PlanInfo = {
+  key: string;
+  name: string;
+  price_usd_month: number;
+  monthly_run_limit: number;
+  monthly_cost_limit_usd: number;
+  seats: number;
+  blurb: string;
+  current: boolean;
+};
+
+export type OrgUsage = {
+  runs: number;
+  run_limit: number;
+  runs_left: number;
+  cost_usd: number;
+  cost_limit_usd: number;
+  tokens: number;
+  period_start: string;
+  over_run_limit: boolean;
+  over_cost_limit: boolean;
+};
+
+export type OrgDetail = {
+  id: string;
+  name: string;
+  slug: string;
+  plan: string;
+  your_role: Role;
+  usage: OrgUsage;
+  plans: PlanInfo[];
+  seats_used: number;
+  seat_limit: number;
+};
+
+export type Member = { user_id: string; name: string; email: string | null; role: Role; joined: string };
+
+export type ApiKeyInfo = {
+  id: string;
+  name: string;
+  prefix: string;
+  created_by: string | null;
+  created_at: string;
+  last_used_at: string | null;
+  revoked: boolean;
+};
+
+export type CheckoutResult = {
+  plan: string;
+  checkout_url: string | null;
+  applied: boolean;
+  simulated: boolean;
+  message: string;
+};
 
 export type AuditEntry = { actor: string; action: string; detail: Record<string, unknown>; ts: string };
 
@@ -178,7 +244,24 @@ export const api = {
   streamUrl: (id: string, lastSeq = 0) => `${API_URL}/runs/${id}/stream?last_seq=${lastSeq}`,
 
   me: () => json<UserInfo | null>("/auth/me"),
-  signin: (name: string) => json<UserInfo>("/auth/signin", { method: "POST", body: JSON.stringify({ name }) }),
+  signin: (name: string, orgName?: string, email?: string) =>
+    json<UserInfo>("/auth/signin", {
+      method: "POST",
+      body: JSON.stringify({ name, org_name: orgName ?? null, email: email ?? null }),
+    }),
+  switchOrg: (orgId: string) =>
+    json<UserInfo>("/auth/switch-org", { method: "POST", body: JSON.stringify({ org_id: orgId }) }),
+
+  org: () => json<OrgDetail>("/org"),
+  members: () => json<Member[]>("/org/members"),
+  inviteMember: (name: string, role: Role, email?: string) =>
+    json<Member>("/org/members", { method: "POST", body: JSON.stringify({ name, role, email: email ?? null }) }),
+  apiKeys: () => json<ApiKeyInfo[]>("/org/api-keys"),
+  createApiKey: (name: string) =>
+    json<ApiKeyInfo & { secret: string }>("/org/api-keys", { method: "POST", body: JSON.stringify({ name }) }),
+  revokeApiKey: (id: string) => json<void>(`/org/api-keys/${id}`, { method: "DELETE" }),
+  changePlan: (plan: string) =>
+    json<CheckoutResult>("/org/plan", { method: "POST", body: JSON.stringify({ plan }) }),
   signout: () => json<void>("/auth/signout", { method: "POST" }),
   decide: (runId: string, body: DecisionBody) =>
     json<Run>(`/runs/${runId}/decision`, { method: "POST", body: JSON.stringify(body) }),

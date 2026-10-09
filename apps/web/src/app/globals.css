@@ -163,3 +163,12 @@ code {
 .card.gate { border-color: var(--warn); }
 .card.ok { border-color: var(--ok); }
 .gate .form label { margin-top: 10px; }
+
+/* --- settings --- */
+.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.plan {
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 14px;
+  display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
+}
+.plan-on { border-color: var(--accent); }
+.plan .btn { margin-top: auto; }

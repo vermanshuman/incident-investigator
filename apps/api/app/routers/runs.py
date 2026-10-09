@@ -9,11 +9,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
-from app.core.auth import current_user
+from app.core.auth import Principal, requires, requires_human
 from app.core.db import get_db
 from app.core.events import bus, run_channel
 from app.core.tenancy import current_org
-from app.models import AuditEvent, Hypothesis, Organization, Report, Run, RunEvent, RunStatus, User
+from app.models import AuditEvent, Hypothesis, Organization, Report, Role, Run, RunEvent, RunStatus
 from app.routers.incidents import RunOut
 from app.services import runs as run_service
 
@@ -69,7 +69,8 @@ def _events(db: Session, run_id: str, after: int = 0) -> list[dict]:
 
 
 @router.get("", response_model=list[RunOut])
-def list_runs(db: Session = Depends(get_db), org: Organization = Depends(current_org)) -> list[Run]:
+def list_runs(db: Session = Depends(get_db), org: Organization = Depends(current_org),
+              _: Principal = Depends(requires(Role.viewer))) -> list[Run]:
     return list(db.scalars(
         select(Run).where(Run.org_id == org.id).order_by(Run.started_at.desc()).limit(50)
     ))
@@ -77,7 +78,8 @@ def list_runs(db: Session = Depends(get_db), org: Organization = Depends(current
 
 @router.get("/{run_id}", response_model=RunDetail)
 def get_run(run_id: str, db: Session = Depends(get_db),
-            org: Organization = Depends(current_org)) -> RunDetail:
+            org: Organization = Depends(current_org),
+            _: Principal = Depends(requires(Role.viewer))) -> RunDetail:
     run = _scoped(db, org, run_id)
     hyps = db.scalars(select(Hypothesis).where(Hypothesis.run_id == run_id))
     report = db.scalar(select(Report).where(Report.run_id == run_id))
@@ -92,7 +94,8 @@ def get_run(run_id: str, db: Session = Depends(get_db),
 @router.get("/{run_id}/stream")
 async def stream_events(run_id: str, request: Request, last_seq: int = 0,
                         db: Session = Depends(get_db),
-                        org: Organization = Depends(current_org)):
+                        org: Organization = Depends(current_org),
+                        _: Principal = Depends(requires(Role.viewer))):
     """Server-Sent Events for a run.
 
     Replays stored events the client has not seen (so a refresh or reconnect
@@ -162,7 +165,8 @@ class AuditOut(BaseModel):
 
 @router.get("/{run_id}/audit", response_model=list[AuditOut])
 def run_audit(run_id: str, db: Session = Depends(get_db),
-              org: Organization = Depends(current_org)) -> list[AuditEvent]:
+              org: Organization = Depends(current_org),
+              _: Principal = Depends(requires(Role.viewer))) -> list[AuditEvent]:
     _scoped(db, org, run_id)
     return list(db.scalars(
         select(AuditEvent).where(AuditEvent.run_id == run_id).order_by(AuditEvent.ts)
@@ -172,7 +176,7 @@ def run_audit(run_id: str, db: Session = Depends(get_db),
 @router.post("/{run_id}/decision", response_model=RunOut, status_code=202)
 async def decide(run_id: str, body: Decision, db: Session = Depends(get_db),
                  org: Organization = Depends(current_org),
-                 user: User = Depends(current_user)) -> Run:
+                 principal: Principal = Depends(requires_human(Role.approver))) -> Run:
     """Approve or reject a run paused at the gate.
 
     Approving is what lets the agent take its one write action, so it requires
@@ -183,9 +187,10 @@ async def decide(run_id: str, body: Decision, db: Session = Depends(get_db),
         raise HTTPException(409, f"run is {run.status.value}, not awaiting approval")
     overrides = body.overrides()
     if overrides:
-        db.add(AuditEvent(org_id=org.id, run_id=run.id, actor=user.name,
+        db.add(AuditEvent(org_id=org.id, run_id=run.id, actor=principal.actor,
                           action="edited", detail={"fields": sorted(overrides)}))
         db.commit()
-    await run_service.decide_run(run, approved=body.approved, actor=user.name, overrides=overrides or None)
+    await run_service.decide_run(run, approved=body.approved, actor=principal.actor,
+                                 overrides=overrides or None)
     db.refresh(run)
     return run

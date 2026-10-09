@@ -105,8 +105,9 @@ export function ApprovalPanel({
   );
 }
 
-export function SignInForm({ onDone }: { onDone: () => void }) {
+export function SignInForm({ onDone, withOrg = false }: { onDone: () => void; withOrg?: boolean }) {
   const [name, setName] = useState("");
+  const [org, setOrg] = useState("");
   const [busy, setBusy] = useState(false);
 
   return (
@@ -116,7 +117,7 @@ export function SignInForm({ onDone }: { onDone: () => void }) {
         e.preventDefault();
         setBusy(true);
         try {
-          await api.signin(name.trim());
+          await api.signin(name.trim(), org.trim() || undefined);
           onDone();
         } finally {
           setBusy(false);
@@ -128,8 +129,16 @@ export function SignInForm({ onDone }: { onDone: () => void }) {
         onChange={(e) => setName(e.target.value)}
         placeholder="your name"
         required
-        style={{ maxWidth: 220 }}
+        style={{ maxWidth: 200 }}
       />
+      {withOrg && (
+        <input
+          value={org}
+          onChange={(e) => setOrg(e.target.value)}
+          placeholder="new organization (optional)"
+          style={{ maxWidth: 220 }}
+        />
+      )}
       <button className="btn" type="submit" disabled={busy || !name.trim()}>
         {busy ? "Signing in…" : "Sign in"}
       </button>

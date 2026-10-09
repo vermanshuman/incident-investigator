@@ -6,69 +6,12 @@ backlog replay after reconnect), and the report is stored as markdown.
 """
 
 import json
-import time
 
 import pytest
 
 from app.core.db import SessionLocal
 from app.models import Report, Run, RunEvent, RunStatus
-
-EVENTS = [
-    {"seq": 1, "node": "intake", "note": "Parsed incident"},
-    {"seq": 2, "node": "triage", "note": "Triage: 500s on POST /checkout"},
-    {"seq": 3, "node": "generate_hypotheses", "note": "3 hypotheses",
-     "hypotheses": [
-         {"id": "H1", "statement": "bad deploy", "category": "bad_deploy", "status": "open",
-          "confidence": 0.3, "evidence_for": [], "evidence_against": []},
-         {"id": "H2", "statement": "pool exhausted", "category": "resource_config", "status": "open",
-          "confidence": 0.3, "evidence_for": [], "evidence_against": []},
-     ]},
-    {"seq": 4, "node": "run_tool", "note": "get_deploy_events: what shipped",
-     "tool_call": {"step": 1, "tool": "get_deploy_events", "args": {}, "tests_hypothesis": "H1",
-                   "why": "what shipped", "summary": "- [deploy:ab12] Remove validation",
-                   "refs": ["deploy:ab12"], "latency_ms": 12.0, "error": None}},
-    {"seq": 5, "node": "decide", "note": "deploy found",
-     "hypotheses": [
-         {"id": "H1", "statement": "bad deploy", "category": "bad_deploy", "status": "confirmed",
-          "confidence": 0.9,
-          "evidence_for": [{"tool": "get_deploy_events", "source_ref": "deploy:ab12", "excerpt": "x"}],
-          "evidence_against": []},
-         {"id": "H2", "statement": "pool exhausted", "category": "resource_config", "status": "refuted",
-          "confidence": 0.1, "evidence_for": [], "evidence_against": []},
-     ],
-     "usage": {"calls": 4, "input_tokens": 3000, "output_tokens": 900, "cost_usd": 0.012}},
-    {"seq": 6, "node": "write_report", "note": "Report ready",
-     "report": {"summary": "s", "customer_impact": "c", "timeline": ["14:02 first error"],
-                "root_cause": "Commit ab12 removed the null check", "confidence": "high",
-                "supporting_evidence": [{"tool": "get_deploy_events", "source_ref": "deploy:ab12",
-                                         "excerpt": "Remove validation"}],
-                "ruled_out": ["H2: pool - no pool errors"],
-                "fix": {"summary": "restore the check", "change": "+ if addr is None: 400",
-                        "rollback": "revert ab12"},
-                "unchecked_areas": ["metrics"], "is_external": False}},
-]
-
-
-@pytest.fixture
-def fake_agent(monkeypatch):
-    def investigate(title, description, on_event=None, thread_id=None, checkpointer=None):
-        for event in EVENTS:
-            on_event(dict(event))
-        return {"step": 1, "stop_reason": "confirmed by symptom + change evidence"}
-
-    monkeypatch.setattr("app.services.runs.investigate", investigate)
-
-
-def _await_run(run_id: str, timeout: float = 10.0) -> Run:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        with SessionLocal() as db:
-            run = db.get(Run, run_id)
-            if run.status in {RunStatus.awaiting_approval, RunStatus.failed}:
-                db.expunge(run)
-                return run
-        time.sleep(0.05)
-    raise AssertionError("run did not finish")
+from tests.conftest import _await_run, _await_terminal
 
 
 def test_investigate_runs_off_the_request_path_and_persists_everything(client, incident, fake_agent):
@@ -151,10 +94,6 @@ def _paused_run(client, incident) -> str:
     return run_id
 
 
-def _signin(client, name="Priya Nair"):
-    assert client.post("/auth/signin", json={"name": name}).status_code == 200
-
-
 def test_approval_requires_a_signed_in_reviewer(client, incident, fake_agent):
     run_id = _paused_run(client, incident)
     client.post("/auth/signout")
@@ -177,7 +116,6 @@ def test_approving_records_who_and_files_the_issue(client, incident, fake_agent,
 
     monkeypatch.setattr("app.services.runs.resume", fake_resume)
     run_id = _paused_run(client, incident)
-    _signin(client)
 
     assert client.post(f"/runs/{run_id}/decision", json={"approved": True}).status_code == 202
     run = _await_terminal(run_id)
@@ -203,7 +141,6 @@ def test_rejecting_files_nothing_but_is_recorded(client, incident, fake_agent, m
 
     monkeypatch.setattr("app.services.runs.resume", fake_resume)
     run_id = _paused_run(client, incident)
-    _signin(client, "Sam Okoro")
 
     client.post(f"/runs/{run_id}/decision", json={"approved": False})
     run = _await_terminal(run_id)
@@ -211,7 +148,7 @@ def test_rejecting_files_nothing_but_is_recorded(client, incident, fake_agent, m
     assert calls == [False]
 
     audit = client.get(f"/runs/{run_id}/audit").json()
-    assert [(a["actor"], a["action"]) for a in audit] == [("Sam Okoro", "rejected")]
+    assert [(a["actor"], a["action"]) for a in audit] == [("Priya Nair", "rejected")]
     assert client.get(f"/runs/{run_id}").json()["report"]["github_issue_url"] is None
 
 
@@ -224,7 +161,6 @@ def test_reviewer_edits_are_passed_through_and_recorded(client, incident, fake_a
 
     monkeypatch.setattr("app.services.runs.resume", fake_resume)
     run_id = _paused_run(client, incident)
-    _signin(client)
 
     client.post(f"/runs/{run_id}/decision", json={
         "approved": True, "root_cause": "Reviewer rewrote this", "fix_summary": "revert it"})
@@ -240,7 +176,6 @@ def test_a_run_cannot_be_decided_twice(client, incident, fake_agent, monkeypatch
     monkeypatch.setattr("app.services.runs.resume",
                         lambda *a, **kw: {"github_issue_url": None})
     run_id = _paused_run(client, incident)
-    _signin(client)
     client.post(f"/runs/{run_id}/decision", json={"approved": True})
     _await_terminal(run_id)
 
@@ -248,13 +183,4 @@ def test_a_run_cannot_be_decided_twice(client, incident, fake_agent, monkeypatch
     assert again.status_code == 409
 
 
-def _await_terminal(run_id: str, timeout: float = 10.0) -> Run:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        with SessionLocal() as db:
-            run = db.get(Run, run_id)
-            if run.status in {RunStatus.completed, RunStatus.rejected, RunStatus.failed}:
-                db.expunge(run)
-                return run
-        time.sleep(0.05)
-    raise AssertionError("decision did not settle")
+

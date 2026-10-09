@@ -14,6 +14,7 @@ const NAV = [
   ["/logs", "Logs"],
   ["/knowledge", "Knowledge"],
   ["/integrations", "Integrations"],
+  ["/settings", "Settings"],
 ] as const;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

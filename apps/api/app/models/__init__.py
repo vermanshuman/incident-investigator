@@ -12,7 +12,18 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -56,36 +67,95 @@ class HypothesisStatus(str, enum.Enum):
 DEFAULT_ORG_ID = "org_demo"
 
 
+class Role(str, enum.Enum):
+    """What a member may do. Ordered: each role includes the ones below it."""
+
+    owner = "owner"      # billing and members, plus everything an admin can do
+    admin = "admin"      # integrations, API keys, settings
+    approver = "approver"  # start investigations and approve their reports
+    viewer = "viewer"    # read only
+
+    @property
+    def rank(self) -> int:
+        return ["viewer", "approver", "admin", "owner"].index(self.value)
+
+    def can(self, required: "Role") -> bool:
+        return self.rank >= required.rank
+
+
 class Organization(Base):
-    """The tenant. One row today; the column exists so multi-tenancy is a
-    configuration change rather than a migration of every table."""
+    """The tenant. Everything tenant-owned points here."""
 
     __tablename__ = "organizations"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(120))
     slug: Mapped[str] = mapped_column(String(60), unique=True)
-    plan: Mapped[str] = mapped_column(String(20), default="free")  # free | pro
-    # Usage metering: what a plan limit and an invoice are computed from.
+    plan: Mapped[str] = mapped_column(String(20), default="free")
+    # Metering: a plan limit and an invoice are both computed from these.
     monthly_run_limit: Mapped[int] = mapped_column(Integer, default=100)
     monthly_cost_limit_usd: Mapped[float] = mapped_column(Float, default=5.0)
+    # Set once the org has a real subscription; absent in test/simulated mode.
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(80))
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String(80))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     incidents: Mapped[list["Incident"]] = relationship(back_populates="org")
+    memberships: Mapped[list["Membership"]] = relationship(back_populates="org", cascade="all, delete")
 
 
 class User(Base):
-    """A reviewer. Approvals must name a person, not "the system"."""
+    """A person. Identity is global; what they may do is per organization."""
 
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True, default=DEFAULT_ORG_ID)
     name: Mapped[str] = mapped_column(String(120))
-    email: Mapped[str | None] = mapped_column(String(200))
+    email: Mapped[str | None] = mapped_column(String(200), unique=True)
     github_login: Mapped[str | None] = mapped_column(String(80))
-    role: Mapped[str] = mapped_column(String(20), default="approver")  # admin | approver | viewer
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    memberships: Mapped[list["Membership"]] = relationship(back_populates="user", cascade="all, delete")
+
+
+class Membership(Base):
+    """A user's role in one organization: the source of truth for permissions.
+
+    A user may belong to several organizations, which is why the role lives
+    here and not on the user.
+    """
+
+    __tablename__ = "memberships"
+    __table_args__ = (UniqueConstraint("org_id", "user_id", name="uq_membership"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    role: Mapped[Role] = mapped_column(Enum(Role), default=Role.approver)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    org: Mapped[Organization] = relationship(back_populates="memberships")
+    user: Mapped[User] = relationship(back_populates="memberships")
+
+
+class ApiKey(Base):
+    """Lets an alerting system open incidents without a browser session.
+
+    Only a hash is stored: the secret is shown once, at creation, and cannot
+    be recovered afterwards.
+    """
+
+    __tablename__ = "api_keys"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    prefix: Mapped[str] = mapped_column(String(16), index=True)  # shown in the UI to identify it
+    hashed_secret: Mapped[str] = mapped_column(String(128))
+    created_by: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class AuditEvent(Base):
