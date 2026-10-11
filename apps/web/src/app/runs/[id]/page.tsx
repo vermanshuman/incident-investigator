@@ -1,23 +1,24 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { api } from "@/lib/api";
-import { LiveRunView } from "@/components/LiveRunView";
+import { api, isAuthError } from "@/lib/api";
+import { RunLoader } from "@/components/RunLoader";
 
 export const dynamic = "force-dynamic";
 
 export default async function RunDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const run = await api.run(id).catch(() => null);
-  if (!run) notFound();
-  const incident = await api.incident(run.incident_id).catch(() => null);
+  // Rendered on the server when the session is visible there; the loader
+  // fetches again in the browser, which is also the signed-out path.
+  const run = await api.run(id).catch((e) => (isAuthError(e) ? null : null));
+  const incident = run ? await api.incident(run.incident_id).catch(() => null) : null;
 
   return (
     <>
-      <h1>{incident?.title ?? `Run ${run.id.slice(0, 8)}`}</h1>
+      <h1>{incident?.title ?? "Investigation"}</h1>
       <p className="muted">
-        <Link href={`/incidents/${run.incident_id}`}>back to incident</Link> · run {run.id.slice(0, 8)}
+        {run && <><Link href={`/incidents/${run.incident_id}`}>back to incident</Link> · </>}
+        run {id.slice(0, 8)}
       </p>
-      <LiveRunView initial={run} />
+      <RunLoader runId={id} />
     </>
   );
 }

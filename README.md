@@ -37,6 +37,17 @@ python investigate.py --replay cassettes/s01_null_check.jsonl "500s on checkout"
 Or in the browser: **Incidents → Report incident → Investigate**, with the dropdown on
 **Replay**. See [docs/demo.md](docs/demo.md) for the 90-second walkthrough.
 
+## Screenshots
+
+| | |
+|---|---|
+| ![Live run with the approval gate](docs/screenshots/01-live-run-approval.jpg) | ![Dashboard](docs/screenshots/02-dashboard.jpg) |
+| The investigation as it happens: hypotheses confirmed or refuted with their citations, the evidence behind any step one click away, and the approval gate the agent cannot pass by itself. | Open incidents, time to root cause, cost per run, and usage against the plan limit. |
+| ![Settings](docs/screenshots/03-settings-plan-members.jpg) | ![External cause](docs/screenshots/05-external-cause-run.jpg) |
+| Organization, plan, usage meter, members and roles. | The "not our bug" case - it searches the wrong endpoint first, recovers, and concludes external. |
+
+More in [docs/screenshots](docs/screenshots/).
+
 ## Layout
 
 ```

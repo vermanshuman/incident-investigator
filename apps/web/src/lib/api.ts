@@ -211,18 +211,54 @@ export type DashboardStats = {
   };
 };
 
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/** Not signed in, or not permitted - the page should offer a sign-in, not a 404. */
+export const isAuthError = (e: unknown) =>
+  e instanceof ApiError && (e.status === 401 || e.status === 403);
+
+/**
+ * Server components fetch from the API in a Node process, where `credentials:
+ * "include"` means nothing - there is no cookie jar. The incoming request's
+ * cookie has to be forwarded by hand, or a signed-in user gets a 404 on any
+ * server-rendered page.
+ */
+async function serverCookie(): Promise<string | undefined> {
+  if (typeof window !== "undefined") return undefined;
+  try {
+    const { cookies } = await import("next/headers");
+    const jar = await cookies();
+    const header = jar.toString();
+    return header || undefined;
+  } catch {
+    return undefined; // outside a request scope (build time)
+  }
+}
+
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
+  const cookie = await serverCookie();
   const res = await fetch(`${API_URL}${path}`, {
     cache: "no-store",
-    // The session cookie identifies the reviewer, so it must travel with
-    // every request - including the server-rendered ones.
+    // In the browser the cookie travels automatically; on the server it is
+    // forwarded explicitly above.
     credentials: "include",
-    headers: { "content-type": "application/json" },
     ...init,
+    // Merged last so a caller's headers add to these rather than replace them.
+    headers: {
+      "content-type": "application/json",
+      ...(cookie ? { cookie } : {}),
+      ...(init?.headers ?? {}),
+    },
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(detail.slice(0, 200) || `${res.status} ${res.statusText} on ${path}`);
+    throw new ApiError(detail.slice(0, 200) || `${res.status} ${res.statusText} on ${path}`,
+                       res.status);
   }
   return res.status === 204 ? (undefined as T) : res.json();
 }
