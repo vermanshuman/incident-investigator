@@ -1,10 +1,41 @@
 # AI DevOps Incident Investigator
 
-A hypothesis-driven agent that investigates production incidents like an on-call engineer.
-It forms hypotheses, gathers evidence from logs, metrics, the database, past incidents and Git
-history, rules causes out visibly, proposes a fix, and waits for human approval before opening a
-GitHub issue. Every claim links to its evidence, and a built-in eval harness measures how often
-the agent is right.
+An agent that investigates production incidents the way an on-call engineer does: it forms
+hypotheses, gathers evidence from logs, metrics, the database, deploy events and git history,
+**rules the wrong ones out visibly**, and writes a report where every claim cites the tool
+result it came from. It stops before taking any action — opening a GitHub issue needs a human.
+
+It is multi-tenant, meters its own cost against plan limits, and ships an eval suite that
+publishes how often it is right, including when it is wrong.
+
+```
+Reasoned   — Logs show AttributeError on 'country'; checking deploy events.
+Gathered   — get_deploy_events: what shipped before the errors started
+  H1 -> CONFIRMED (0.9)  A recent deployment introduced a bug in POST /checkout
+  H2 -> REFUTED   (0.1)  An external payment gateway is timing out
+  H3 -> REFUTED   (0.1)  Database connection pool exhaustion
+
+ROOT CAUSE: Deploy 64dfbac6 removed backend validation for shipping_address,
+            leading to AttributeError: 'NoneType' has no attribute 'country'
+evidence: deploy:64dfbac6b312, log:223     confidence=high  external=False
+stop: confirmed by symptom + change evidence | 6 model calls | $0.079
+```
+
+**Measured, not claimed** ([full table](docs/eval-results.md)): mean score **0.83** over six
+scenarios, the "is this even our bug?" call right **6/6**, at roughly **$0.08 per
+investigation**. The misses are in the table too.
+
+## Try it without an API key
+
+Every investigation is recorded, so the whole thing replays for free:
+
+```bash
+python dev.py                                   # web :3000 · api :8000 · target app :8080
+python investigate.py --replay cassettes/s01_null_check.jsonl "500s on checkout"
+```
+
+Or in the browser: **Incidents → Report incident → Investigate**, with the dropdown on
+**Replay**. See [docs/demo.md](docs/demo.md) for the 90-second walkthrough.
 
 ## Layout
 
@@ -18,8 +49,9 @@ packages/
   agent/        LangGraph graph: state, nodes, prompts, schemas
   mcp-server/   Read-only investigation tools exposed over MCP
   evals/        Scripted incidents, runner, scoring
+cassettes/      recorded runs: replay an investigation with no API key
 infra/          docker-compose, otel-collector config, DB init
-docs/           architecture, threat model, eval results
+docs/           architecture, threat model, demo script, eval results
 ```
 
 ## Quick start (local, no Docker)
@@ -36,16 +68,37 @@ First run installs dependencies and seeds `target-repo/` (the victim's git histo
 ## Break the target app
 
 ```bash
-python fault.py list                       # scenarios and their status
-python fault.py apply s01_null_check       # commit culprit on a branch, deploy, send traffic
-python fault.py apply s03_pool_exhaustion  # config change -> pool at 100%, QueuePool timeouts
-python fault.py apply s08_provider_outage  # external outage: no commit, no deploy event
-python fault.py reset                      # back to main (add --wipe to clear logs/metrics)
+python fault.py list                       # every scenario and whether it reproduces
+python fault.py apply s01_null_check       # commit a culprit, deploy it, send traffic
+python fault.py reset                      # back to a healthy main
 ```
 
-Evidence lands in `data/checkout.db`: `app_logs` (with stack traces), `metrics_samples`
-(request_rate, error_rate, p95_latency_ms, db_pool_usage), `deploy_events`, and the culprit
-commit is in `target-repo/` (`git log`, `git show <sha>`). `GET /health` reports the running SHA.
+Six scenarios reproduce end to end, chosen to cover different classes of cause:
+
+| scenario | class | what makes it interesting |
+|---|---|---|
+| `s01_null_check` | bad deploy | the textbook case: a commit removes a guard |
+| `s03_pool_exhaustion` | resource config | the symptom is saturation; the cause is a config commit |
+| `s04_rotated_key` | config/secret | **nothing was deployed** — and it is still our fault |
+| `s05_n_plus_one` | performance | slow, not broken; no errors to grep for |
+| `s07_feature_flag` | config | fails only in some regions |
+| `s08_provider_outage` | external | the right answer is "not our bug" |
+
+Evidence lands in `data/checkout.db` (`app_logs` with stack traces, `metrics_samples`,
+`deploy_events`) and the culprit commit is in `target-repo/`. `GET /health` reports the running
+SHA. Four more scenarios are catalogued but not yet reproducible, and `fault.py list` says so.
+
+## Evals
+
+```bash
+python evals.py --replay          # free, deterministic: what CI runs
+python evals.py --repeat 3        # live, to show run-to-run variance
+```
+
+Writes [docs/eval-results.md](docs/eval-results.md) and a JSON sibling. Scoring is deliberately
+unkind: a report only scores the culprit if it cites the file or config that actually caused the
+incident, which means reading the change rather than trusting the commit message. Two runs name
+the right commit and lose that point because they never opened the diff — that stays in the table.
 
 ## Ask the investigation tools (what the agent will call)
 
@@ -181,18 +234,37 @@ worse than not investigating it.
 | pool exhaustion | the deploy that shrank the pool - fix is revert, not "raise the limit" | QueuePool error + deploy event |
 | provider outage | `external=true`, no commit blamed, mitigation not a code change | upstream timeouts + empty deploy history |
 
-## Phases
+## Observability
 
-| # | Phase | Status |
-|---|-------|--------|
-| 0 | Foundation (repo, skeletons, CI) | done |
-| 1 | Target app + fault injector (3 scenarios) | done |
-| 2 | MCP tools (logs, metrics, DB, git, deploys) | done |
-| 3 | Agent v1 (LangGraph loop, CLI run) + first evals | done (needs your live test) |
-| 4 | Live UI (SSE streaming, evidence drawer) | done |
-| 5 | Approval gate + GitHub issue + sign-in | done |
-| 6 | SaaS layer: orgs, roles, plans, API keys, billing | done |
-| 7 | Knowledge base (pgvector) + full eval suite | |
-| 8 | Polish: OTel, docs, demo video | |
+With `OTEL_EXPORTER_OTLP_ENDPOINT` set (Jaeger, Tempo, anything OTLP), each run emits one trace:
+a span per graph node, model call and tool call, carrying tokens, cost and latency. For a quick
+look without a collector:
 
-See [docs/architecture.md](docs/architecture.md) and [docs/threat-model.md](docs/threat-model.md).
+```bash
+OTEL_CONSOLE=1 python investigate.py --replay cassettes/s05_n_plus_one.jsonl "slow checkout"
+```
+
+## Status
+
+| # | Phase | |
+|---|---|---|
+| 0 | Foundation: repo, skeletons, CI | done |
+| 1 | Target app + fault injector | done |
+| 2 | Read-only MCP tools | done |
+| 3 | Agent: hypothesis loop, evidence rules, cost caps | done |
+| 4 | Live UI: SSE streaming, evidence drawer | done |
+| 5 | Approval gate, GitHub issue, durable pause | done |
+| 6 | SaaS: orgs, roles, plans, API keys, billing | done |
+| 7 | Six scenarios, eval suite with published numbers, OTel | done |
+| 8 | Deploy to a public URL | not started |
+
+Deliberately not done: pgvector retrieval over past incidents, four of the ten catalogued
+scenarios, and a hosted deployment. The architecture leaves seams for all three —
+[docs/architecture.md](docs/architecture.md) names them.
+
+## Docs
+
+- [architecture.md](docs/architecture.md) — the loop, the stopping rule, the deployment seams
+- [threat-model.md](docs/threat-model.md) — what the agent can and cannot do, and why
+- [demo.md](docs/demo.md) — the 90-second script
+- [eval-results.md](docs/eval-results.md) — the numbers, including the failures

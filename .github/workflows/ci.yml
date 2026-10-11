@@ -42,3 +42,16 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
+
+  evals:
+    # Replayed from committed cassettes: no API key, no target app, no cost.
+    # A prompt or graph change that breaks the agent fails here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --all-extras
+        working-directory: packages/evals
+      - run: python evals.py --replay
+        env:
+          EVAL_MIN_SCORE: "0.70"

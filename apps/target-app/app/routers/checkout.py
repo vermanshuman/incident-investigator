@@ -28,8 +28,27 @@ class CheckoutResponse(BaseModel):
     order_id: str
     total: float
     shipping_fee: float
+    tax: float = 0.0
     status: str
     provider_ref: str | None = None
+
+
+def _tax(region: str | None, subtotal: float) -> float:
+    """Tax is computed by the v2 service for regions the flag enables."""
+    s = get_settings()
+    enabled = {r.strip() for r in s.flag_tax_v2_regions.split(",") if r.strip()}
+    if region in enabled:
+        return _tax_service_v2(region, subtotal)
+    return round(subtotal * s.tax_rate_default, 2)
+
+
+# Rates the v2 service knows about. A region enabled by the flag but missing
+# here has no rate to apply.
+V2_RATES = {"in-west": 0.18}
+
+
+def _tax_service_v2(region: str, subtotal: float) -> float:
+    return round(subtotal * V2_RATES[region], 2)
 
 
 def _shipping_fee(country: str, subtotal: float) -> float:
@@ -57,7 +76,8 @@ def checkout(body: CheckoutRequest, request: Request, db: Session = Depends(get_
     subtotal = sum(i.qty * i.product.price for i in cart.items)
     country = body.shipping_address.country.upper()
     fee = _shipping_fee(country, subtotal)
-    total = round(subtotal + fee, 2)
+    tax = _tax(cart.region, subtotal)
+    total = round(subtotal + fee + tax, 2)
 
     # Reserve inventory
     for item in cart.items:
@@ -87,5 +107,5 @@ def checkout(body: CheckoutRequest, request: Request, db: Session = Depends(get_
     db.commit()
     log_event("INFO", f"order {order.id} paid {total} via {body.payment_method}",
               trace_id=trace_id, path="/checkout", order_id=order.id, country=country)
-    return CheckoutResponse(order_id=order.id, total=total, shipping_fee=fee,
+    return CheckoutResponse(order_id=order.id, total=total, shipping_fee=fee, tax=tax,
                             status="confirmed", provider_ref=ref)

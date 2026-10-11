@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 from mcp_server.tools import database, deploys, git, logs, metrics
 
-from agent import cassette
+from agent import cassette, tracing
 from agent.guardrails import redact
 
 MAX_DIFF_CHARS = 3000
@@ -116,6 +116,17 @@ def run_tool(name: str, args: dict) -> tuple[ToolResult, float, str | None]:
     """Execute a tool; return (result, latency_ms, error). Output is redacted
     before it can reach the model. Under LLM_REPLAY the recorded result is
     returned instead, so a replay needs neither the target app nor its data."""
+    with tracing.span("tool", **{"tool.name": name, "tool.args": str(args)[:200]}) as current:
+        result = _run_tool(name, args)
+        tracing.set_attributes(current, **{
+            "tool.latency_ms": round(result[1], 1),
+            "tool.refs": len(result[0].refs),
+            "tool.error": result[2],
+        })
+        return result
+
+
+def _run_tool(name: str, args: dict) -> tuple[ToolResult, float, str | None]:
     if cassette.replay_path() is not None:
         row = cassette.lookup(cassette.tool_schema(name), "-", "", cassette.args_key(args))
         out = row["output"]

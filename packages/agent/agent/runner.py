@@ -19,6 +19,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite import SqliteSaver
 
+from agent import tracing
 from agent.graph import build_graph
 from agent.guardrails import new_budget
 from agent.state import InvestigationState
@@ -95,8 +96,12 @@ def _drain(graph, inputs, config, on_event: Callable[[Event], None] | None, seq:
             if not isinstance(update, dict):  # "__interrupt__" marker at the gate
                 continue
             seq += 1
+            event = _event(seq, node, update)
+            with tracing.span("node", **{"node.name": node, "node.seq": seq,
+                                         "node.note": event.get("note", "")[:120]}):
+                pass
             if on_event:
-                on_event(_event(seq, node, update))
+                on_event(event)
     return seq
 
 

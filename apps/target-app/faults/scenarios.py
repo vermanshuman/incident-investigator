@@ -83,18 +83,53 @@ SCENARIOS: dict[str, Scenario] = {
             is_external=True,
             runtime={"payment_provider_status": "down"},
         ),
-        # --- later phases -------------------------------------------------
+        Scenario(
+            id="s04_rotated_key",
+            category="config_secret",
+            title="Third-party API key rotated without updating the service",
+            primary_evidence=["401s from the provider in logs", "no deploy"],
+            # Like s08 nothing shipped - but unlike s08 the cause IS ours, so
+            # this is the case that punishes "no deploy => not our bug".
+            runtime={"payment_provider_expected_api_key": "pk_live_ROTATED_2026"},
+        ),
+        Scenario(
+            id="s07_feature_flag",
+            category="config",
+            title="Feature flag enabled a region the new tax service cannot price",
+            primary_evidence=["errors clustered in one region", "config diff"],
+            patch=_replace(
+                "app/config.py",
+                '    flag_tax_v2_regions: str = "in-west"',
+                '    flag_tax_v2_regions: str = "in-west,in-south,eu-central"',
+            ),
+            commit_message="Roll tax service v2 out to in-south and eu-central",
+            culprit_path="app/config.py",
+            traffic_concurrency=8,
+        ),
+        Scenario(
+            id="s05_n_plus_one",
+            category="performance",
+            title="N+1 query on cart items made checkout slow",
+            primary_evidence=["p95 latency", "db_pool_usage", "diff"],
+            patch=_replace(
+                "app/routers/checkout.py",
+                "    subtotal = sum(i.qty * i.product.price for i in cart.items)",
+                "    # Re-read each price so a concurrent price change is picked up.\n"
+                "    subtotal = 0.0\n"
+                "    for i in cart.items:\n"
+                "        fresh = db.get(Product, i.sku)\n"
+                "        db.refresh(fresh)\n"
+                "        subtotal += i.qty * fresh.price",
+            ),
+            commit_message="Re-read product prices during checkout to avoid stale totals",
+            culprit_path="app/routers/checkout.py",
+            traffic_concurrency=10,
+        ),
+        # --- catalogued, not yet reproducible -------------------------------
         Scenario("s02_column_rename", "schema_change", "Migration renamed a column still in use",
                  ["SQL errors", "migration file"]),
-        Scenario("s04_rotated_key", "config_secret", "Expired or rotated third-party API key",
-                 ["401s from provider in logs"],
-                 runtime={"payment_provider_expected_api_key": "pk_live_ROTATED"}),
-        Scenario("s05_n_plus_one", "performance", "N+1 query introduced, causing timeouts",
-                 ["query counts", "latency", "diff"]),
         Scenario("s06_dependency_bump", "dependency", "Dependency bump changed a serialization format",
                  ["lockfile diff", "parse errors"]),
-        Scenario("s07_feature_flag", "config", "Feature flag misconfigured for one region",
-                 ["errors clustered by region"]),
         Scenario("s09_missing_index", "performance", "Missing index after a migration",
                  ["slow query log", "EXPLAIN"]),
         Scenario("s10_race_condition", "concurrency", "Race condition on inventory decrement",
@@ -102,7 +137,9 @@ SCENARIOS: dict[str, Scenario] = {
     ]
 }
 
-PHASE_1_SCENARIOS = ["s01_null_check", "s03_pool_exhaustion", "s08_provider_outage"]
+# Scenarios the injector reproduces end to end; the eval suite runs these.
+REPRODUCIBLE = ["s01_null_check", "s03_pool_exhaustion", "s04_rotated_key",
+                "s05_n_plus_one", "s07_feature_flag", "s08_provider_outage"]
 
 
 def is_implemented(s: Scenario) -> bool:

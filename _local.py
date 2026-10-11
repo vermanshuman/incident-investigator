@@ -54,6 +54,10 @@ def local_env() -> dict[str, str]:
     if "@postgres" in env.get("DATABASE_URL", "") or not env.get("DATABASE_URL"):
         env["DATABASE_URL"] = _sqlite_url("data", "investigator.db")
     env["TARGET_DATABASE_URL"] = _sqlite_url("data", "checkout.db")
+    # Same for the collector: exporting to a host that does not exist locally
+    # just floods the console with connection errors.
+    if "otel-collector" in env.get("OTEL_EXPORTER_OTLP_ENDPOINT", ""):
+        env.pop("OTEL_EXPORTER_OTLP_ENDPOINT")
     # An activated venv would make uv warn and ignore the package's own env.
     env.pop("VIRTUAL_ENV", None)
     return env

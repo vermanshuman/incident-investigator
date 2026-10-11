@@ -1,0 +1,12 @@
+id: s04_rotated_key_v1
+scenario: s04_rotated_key
+incident:
+  title: "Payments rejected since this morning"
+  description: |
+    All card payments fail. The payment page itself loads. We have not
+    deployed anything today.
+ground_truth:
+  # The trap: no deploy, like the provider outage - but this one IS our config.
+  category: config_secret
+  culprit: null
+  is_external: false

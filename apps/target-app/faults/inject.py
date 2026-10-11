@@ -93,7 +93,7 @@ def list_scenarios() -> None:
 
 @cli.command()
 def seed(force: bool = typer.Option(False, help="recreate the repo even if it exists")) -> None:
-    repo_ops.seed_repo(REPO, force=force)
+    repo_ops.seed_repo(REPO, force=force or not repo_ops.matches_source(REPO))
     typer.echo(f"target repo ready at {REPO} ({repo_ops.git(REPO, 'rev-list', '--count', 'HEAD')} commits)")
 
 
@@ -109,7 +109,11 @@ def apply(
     if not is_implemented(s):
         raise typer.BadParameter(f"{s.id} is not implemented yet")
 
-    repo_ops.seed_repo(REPO)
+    # Editing the service leaves the seeded history stale, which makes the
+    # patch anchors miss; reseed rather than fail with a confusing error.
+    if not repo_ops.matches_source(REPO):
+        typer.echo("target repo is out of date with the source; reseeding ...")
+        repo_ops.seed_repo(REPO, force=True)
     sha = None
     if s.patch:
         sha = repo_ops.commit_on_branch(REPO, f"fault/{s.id}", s.commit_message, DEPLOYER, s.patch)

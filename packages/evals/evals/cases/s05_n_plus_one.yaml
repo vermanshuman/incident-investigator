@@ -1,0 +1,11 @@
+id: s05_n_plus_one_v1
+scenario: s05_n_plus_one
+incident:
+  title: "Checkout got noticeably slower"
+  description: |
+    Checkout response times roughly tripled after this morning's release.
+    Nothing is erroring outright, it is just slow.
+ground_truth:
+  category: performance
+  culprit: "app/routers/checkout.py"
+  is_external: false

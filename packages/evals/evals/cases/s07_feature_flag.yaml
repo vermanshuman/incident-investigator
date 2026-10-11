@@ -1,0 +1,11 @@
+id: s07_feature_flag_v1
+scenario: s07_feature_flag
+incident:
+  title: "Checkout failing for some customers but not others"
+  description: |
+    Support says checkout fails for customers in some regions while others
+    are unaffected. Started around the time of the last release.
+ground_truth:
+  category: config
+  culprit: "app/config.py"
+  is_external: false

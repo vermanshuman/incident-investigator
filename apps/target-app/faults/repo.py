@@ -139,6 +139,25 @@ def seed_repo(repo: Path, force: bool = False) -> None:
             raise RuntimeError(f"seeded repo differs from source for {rel}")
 
 
+def matches_source(repo: Path) -> bool:
+    """Has the seeded history drifted from the current source?
+
+    The repo is generated from app/, so editing app/ leaves it stale and the
+    scenario patches stop applying. Cheaper to detect than to debug.
+    """
+    if not (repo / ".git").is_dir():
+        return False
+    try:
+        for rel in TRACKED_FILES:
+            if rel == "README.md":
+                continue
+            if (repo / rel).read_text(encoding="utf-8") != _final_content(rel):
+                return False
+    except OSError:
+        return False
+    return True
+
+
 def commit_on_branch(
     repo: Path, branch: str, message: str, author: tuple[str, str], apply: Callable[[Path], None]
 ) -> str:

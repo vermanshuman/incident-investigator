@@ -50,7 +50,9 @@ def test_checkout_happy_path_reserves_stock_and_charges(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "confirmed"
-    assert body["total"] == 2 * 799.0
+    subtotal = 2 * 799.0
+    assert body["tax"] == round(subtotal * 0.18, 2)  # default region, default rate
+    assert body["total"] == round(subtotal + body["tax"] + body["shipping_fee"], 2)
     assert body["provider_ref"].startswith("ch_")
 
 

@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     shipping_fee_international: float = 15.0
     free_shipping_threshold: float = 999.0
 
+    # Feature flags. "tax_service_v2" is rolled out per region; a region listed
+    # here uses the new tax service.
+    flag_tax_v2_regions: str = "in-west"
+    tax_rate_default: float = 0.18
+
     # Metrics sampler
     metrics_sample_interval_seconds: int = 5
 

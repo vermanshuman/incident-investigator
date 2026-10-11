@@ -14,6 +14,13 @@ class Score(BaseModel):
     total: float  # 0..1
 
 
+def confirmed_category(hypotheses: list[Hypothesis], report: Report) -> str:
+    confirmed = [h for h in hypotheses if h.status == HypothesisStatus.confirmed]
+    if confirmed:
+        return confirmed[0].category
+    return "external" if report.is_external else ""
+
+
 def score_run(report: Report, hypotheses: list[Hypothesis], truth: GroundTruth) -> Score:
     confirmed = [h for h in hypotheses if h.status == HypothesisStatus.confirmed]
     category = confirmed[0].category if confirmed else ("external" if report.is_external else "")

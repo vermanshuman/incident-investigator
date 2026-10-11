@@ -18,7 +18,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, ValidationError
 
-from agent import cassette
+from agent import cassette, tracing
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -164,6 +164,16 @@ def _cost(model: str, inp: int, out: int) -> float:
 
 
 def call_structured(schema: type[T], system: str, user: str, small: bool = False) -> Call:
+    with tracing.span("llm", **{"llm.schema": schema.__name__, "llm.small": small}) as current:
+        call = _call_structured(schema, system, user, small)
+        tracing.set_attributes(current, **{
+            "llm.model": call.model, "llm.input_tokens": call.input_tokens,
+            "llm.output_tokens": call.output_tokens, "llm.cost_usd": call.cost_usd,
+        })
+        return call
+
+
+def _call_structured(schema: type[T], system: str, user: str, small: bool = False) -> Call:
     model = model_name(small)
     if provider() == "fake":
         if FAKE_RESPONDER is None:
